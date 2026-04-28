@@ -2,6 +2,7 @@
 pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {BridgeHTLC} from "../src/BridgeHTLC.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
@@ -12,6 +13,7 @@ contract BridgeHTLCTest is Test {
     address alice = makeAddr("alice");
     address operator = makeAddr("operator");
     address aliceOn2D = makeAddr("aliceOn2D");
+    address owner = makeAddr("owner");
 
     bytes32 preimage = bytes32(uint256(42));
     bytes32 hash = sha256(abi.encodePacked(preimage));
@@ -21,8 +23,15 @@ contract BridgeHTLCTest is Test {
 
     function setUp() public {
         usdc = new MockERC20("USDC", "USDC", 6);
-        htlc = new BridgeHTLC(address(usdc));
-        deadline = block.timestamp + 1 hours;
+
+        BridgeHTLC impl = new BridgeHTLC();
+        ERC1967Proxy proxy = new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(BridgeHTLC.initialize, (address(usdc), owner))
+        );
+        htlc = BridgeHTLC(address(proxy));
+
+        deadline = block.timestamp + 2 hours;
 
         usdc.mint(alice, 10_000e6);
         vm.prank(alice);
@@ -57,16 +66,29 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, aliceOn2D, amount, deadline);
     }
 
-    function test_lock_zero_amount_reverts() public {
-        vm.expectRevert(BridgeHTLC.ZeroAmount.selector);
+    function test_lock_below_minimum_reverts() public {
+        vm.expectRevert(BridgeHTLC.AmountTooSmall.selector);
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, 0, deadline);
+        htlc.lock(hash, aliceOn2D, 999_999, deadline); // < 1 USDC
     }
 
     function test_lock_zero_receiver_reverts() public {
         vm.expectRevert(BridgeHTLC.ZeroAddress.selector);
         vm.prank(alice);
         htlc.lock(hash, address(0), amount, deadline);
+    }
+
+    function test_lock_deadline_too_soon_reverts() public {
+        vm.expectRevert(BridgeHTLC.DeadlineTooSoon.selector);
+        vm.prank(alice);
+        htlc.lock(hash, aliceOn2D, amount, block.timestamp + 30 minutes);
+    }
+
+    function test_lock_deadline_exactly_min_succeeds() public {
+        uint256 exactMin = block.timestamp + 1 hours + 1;
+        vm.prank(alice);
+        htlc.lock(hash, aliceOn2D, amount, exactMin);
+        assertTrue(htlc.isActive(hash));
     }
 
     // ── claim ───────────────────────────────────────────────
@@ -144,10 +166,8 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, aliceOn2D, amount, deadline);
 
         vm.warp(deadline);
-
         vm.expectEmit(true, false, false, false);
         emit BridgeHTLC.Refunded(hash);
-
         htlc.refund(hash);
     }
 
@@ -190,5 +210,33 @@ contract BridgeHTLCTest is Test {
 
         uint256 totalAfter = usdc.balanceOf(alice) + usdc.balanceOf(operator);
         assertEq(totalBefore, totalAfter);
+    }
+
+    // ── upgradeability ──────────────────────────────────────
+
+    function test_non_owner_cannot_upgrade() public {
+        BridgeHTLC newImpl = new BridgeHTLC();
+        vm.expectRevert();
+        vm.prank(alice);
+        htlc.upgradeToAndCall(address(newImpl), "");
+    }
+
+    function test_owner_can_upgrade() public {
+        BridgeHTLC newImpl = new BridgeHTLC();
+        vm.prank(owner);
+        htlc.upgradeToAndCall(address(newImpl), "");
+        // still works after upgrade
+        assertTrue(address(htlc.token()) == address(usdc));
+    }
+
+    function test_cannot_initialize_twice() public {
+        vm.expectRevert();
+        htlc.initialize(address(usdc), owner);
+    }
+
+    function test_cannot_initialize_implementation_directly() public {
+        BridgeHTLC impl = new BridgeHTLC();
+        vm.expectRevert();
+        impl.initialize(address(usdc), owner);
     }
 }
