@@ -24,11 +24,11 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
 
     struct Lock {
         address sender;
-        address claimer;
         address receiverOn2D;
         uint256 amount;
         uint256 deadline;
         bool active;
+        address claimer;
     }
 
     mapping(bytes32 => Lock) public locks;
