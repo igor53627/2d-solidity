@@ -63,15 +63,22 @@ Returns whether a lock is still active (not yet claimed or refunded). The 2D ver
 
 | Function | Who calls | What it does |
 |---|---|---|
-| `lock(hash, receiverOn2D, amount, deadline)` | User | Escrows USDC under hash H |
-| `claim(hash, preimage)` | Operator | Reveals preimage, takes USDC |
+| `lock(hash, claimer, receiverOn2D, amount, deadline)` | User | Escrows USDC under hash H; binds claim right to `claimer` |
+| `claim(hash, preimage)` | Claimer only | Reveals preimage, receives USDC |
 | `refund(hash)` | Anyone | Returns USDC to sender after deadline |
 | `isActive(hash)` | Verifier | View: is the lock still live? |
 
+### Protections (see [PR #1](https://github.com/igor53627/2d-solidity/pull/1))
+
+- **UUPS proxy** -- upgradeable, owner should be a TimelockController
+- **Anti-griefing** -- `MIN_LOCK_AMOUNT = 1 USDC`, `MIN_DEADLINE_DURATION = 1 hour`
+- **Anti-frontrunning** -- `claimer` bound at lock time; `claim()` enforces `msg.sender == claimer`
+- **ReentrancyGuard** + **SafeERC20** -- defense-in-depth
+
 ### Trust model
 
-- **No unlock authority.** Funds leave the contract only via `claim(preimage)` (correct preimage required) or `refund` (deadline must have passed). There is no admin key, no pause, no upgrade path.
-- **Operator key compromise:** cannot steal locked USDC (no `unlock` function). Can refuse to complete swaps (DoS). Users refund after deadline.
+- **No unlock authority.** Funds leave the contract only via `claim(preimage)` (correct preimage + authorized claimer required) or `refund` (deadline must have passed).
+- **Operator key compromise:** cannot steal locked USDC (no `unlock` function, and claim is bound to the designated claimer). Can refuse to complete swaps (DoS). Users refund after deadline.
 - **Preimage is the only key.** Whoever knows the preimage can claim. The 2D chain publishes the preimage when Alice claims there, so the operator picks it up from on-chain data.
 
 ## Build and test
