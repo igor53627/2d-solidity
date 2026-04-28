@@ -36,7 +36,8 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     event Locked(
         bytes32 indexed hash,
         address indexed sender,
-        address indexed receiverOn2D,
+        address indexed claimer,
+        address receiverOn2D,
         uint256 amount,
         uint256 deadline
     );
@@ -93,7 +94,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
 
         token.safeTransferFrom(msg.sender, address(this), amount);
 
-        emit Locked(hash, msg.sender, receiverOn2D, amount, deadline);
+        emit Locked(hash, msg.sender, claimer, receiverOn2D, amount, deadline);
     }
 
     /// @notice Authorized claimer reveals preimage and receives USDC.

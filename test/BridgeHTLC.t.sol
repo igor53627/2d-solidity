@@ -49,9 +49,9 @@ contract BridgeHTLCTest is Test {
         assertEq(usdc.balanceOf(alice), 10_000e6 - amount);
     }
 
-    function test_lock_emits_event_with_receiverOn2D() public {
+    function test_lock_emits_event_with_claimer_and_receiverOn2D() public {
         vm.expectEmit(true, true, true, true);
-        emit BridgeHTLC.Locked(hash, alice, aliceOn2D, amount, deadline);
+        emit BridgeHTLC.Locked(hash, alice, operator, aliceOn2D, amount, deadline);
 
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
