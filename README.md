@@ -1,66 +1,95 @@
-## Foundry
+# 2d-solidity
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Ethereum-side contracts for the [2D bridge](https://github.com/igor53627/2d). Currently one contract: `BridgeHTLC`.
 
-Foundry consists of:
+## BridgeHTLC
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+USDC-based HTLC that settles cross-chain swaps between Ethereum and 2D via preimage reveal. No validator federation, no multisig unlock, no wrapped tokens.
 
-## Documentation
+### How it works
 
-https://book.getfoundry.sh/
-
-## Usage
-
-### Build
-
-```shell
-$ forge build
+```
+Ethereum                              2D chain
+────────                              ────────
+Alice ──lock(H, receiver, amt, dl)──▸ HTLC
+                                       │
+                    Operator sees Locked event at finality
+                                       │
+                                       ▾
+                              Operator mints + locks
+                              USD-stable for Alice on 2D
+                                       │
+                    Alice claims on 2D with preimage P
+                                       │
+                                       ▾
+        HTLC ◂──claim(H, P)── Operator (preimage now public)
 ```
 
-### Test
+**Bridge-in** (Ethereum → 2D):
 
-```shell
-$ forge test
+1. Alice calls `lock(hash, receiverOn2D, amount, deadline)` -- USDC goes into escrow
+2. Operator waits for Ethereum finality (~12-15 min)
+3. Operator mints USD-stable on 2D and locks it in the 2D HTLC for Alice
+4. Alice claims on 2D by revealing the preimage
+5. Operator uses the revealed preimage to `claim` the original USDC on Ethereum
+
+If the operator never locks on 2D, Alice calls `refund(hash)` after the deadline and gets her USDC back.
+
+### Key design choice: `receiverOn2D`
+
+The `Locked` event includes the intended 2D recipient address:
+
+```solidity
+event Locked(
+    bytes32 indexed hash,
+    address indexed sender,
+    address indexed receiverOn2D,
+    uint256 amount,
+    uint256 deadline
+);
 ```
 
-### Format
+This lets the 2D verifier cross-check that the operator's lock on the 2D side actually routes funds to the right person. Without this field, a compromised operator could lock to an attacker-controlled address instead.
 
-```shell
-$ forge fmt
+### `isActive` view
+
+```solidity
+function isActive(bytes32 hash) external view returns (bool);
 ```
 
-### Gas Snapshots
+Returns whether a lock is still active (not yet claimed or refunded). The 2D verifier queries this to confirm that a `refill_mint` references a lock that hasn't already been settled.
 
-```shell
-$ forge snapshot
+### Functions
+
+| Function | Who calls | What it does |
+|---|---|---|
+| `lock(hash, receiverOn2D, amount, deadline)` | User | Escrows USDC under hash H |
+| `claim(hash, preimage)` | Operator | Reveals preimage, takes USDC |
+| `refund(hash)` | Anyone | Returns USDC to sender after deadline |
+| `isActive(hash)` | Verifier | View: is the lock still live? |
+
+### Trust model
+
+- **No unlock authority.** Funds leave the contract only via `claim(preimage)` (correct preimage required) or `refund` (deadline must have passed). There is no admin key, no pause, no upgrade path.
+- **Operator key compromise:** cannot steal locked USDC (no `unlock` function). Can refuse to complete swaps (DoS). Users refund after deadline.
+- **Preimage is the only key.** Whoever knows the preimage can claim. The 2D chain publishes the preimage when Alice claims there, so the operator picks it up from on-chain data.
+
+## Build and test
+
+Requires [Foundry](https://book.getfoundry.sh/).
+
+```bash
+forge build
+forge test -vv
 ```
 
-### Anvil
+17 tests: lock, claim, refund, isActive, all revert cases, event emission, balance conservation.
 
-```shell
-$ anvil
-```
+## Related
 
-### Deploy
+- [2D chain](https://github.com/igor53627/2d) -- the L1 that this contract bridges to
+- [2D docs](https://igor53627.github.io/2d-docs/architecture/bridge/) -- bridge architecture article
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
+## License
 
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+MIT
