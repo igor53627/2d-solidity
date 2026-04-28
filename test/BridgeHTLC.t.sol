@@ -42,7 +42,7 @@ contract BridgeHTLCTest is Test {
 
     function test_lock_happy_path() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         assertTrue(htlc.isActive(hash));
         assertEq(usdc.balanceOf(address(htlc)), amount);
@@ -54,40 +54,40 @@ contract BridgeHTLCTest is Test {
         emit BridgeHTLC.Locked(hash, alice, aliceOn2D, amount, deadline);
 
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
     }
 
     function test_lock_duplicate_hash_reverts() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.expectRevert(BridgeHTLC.AlreadyLocked.selector);
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
     }
 
     function test_lock_below_minimum_reverts() public {
         vm.expectRevert(BridgeHTLC.AmountTooSmall.selector);
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, 999_999, deadline); // < 1 USDC
+        htlc.lock(hash, operator, aliceOn2D, 999_999, deadline); // < 1 USDC
     }
 
     function test_lock_zero_receiver_reverts() public {
         vm.expectRevert(BridgeHTLC.ZeroAddress.selector);
         vm.prank(alice);
-        htlc.lock(hash, address(0), amount, deadline);
+        htlc.lock(hash, operator, address(0), amount, deadline);
     }
 
     function test_lock_deadline_too_soon_reverts() public {
         vm.expectRevert(BridgeHTLC.DeadlineTooSoon.selector);
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, block.timestamp + 30 minutes);
+        htlc.lock(hash, operator, aliceOn2D, amount, block.timestamp + 30 minutes);
     }
 
     function test_lock_deadline_exactly_min_succeeds() public {
         uint256 exactMin = block.timestamp + 1 hours + 1;
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, exactMin);
+        htlc.lock(hash, operator, aliceOn2D, amount, exactMin);
         assertTrue(htlc.isActive(hash));
     }
 
@@ -95,7 +95,7 @@ contract BridgeHTLCTest is Test {
 
     function test_claim_happy_path() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.prank(operator);
         htlc.claim(hash, preimage);
@@ -106,7 +106,7 @@ contract BridgeHTLCTest is Test {
 
     function test_claim_emits_event() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.expectEmit(true, false, false, true);
         emit BridgeHTLC.Claimed(hash, preimage);
@@ -115,9 +115,24 @@ contract BridgeHTLCTest is Test {
         htlc.claim(hash, preimage);
     }
 
+    function test_claim_frontrun_by_third_party_reverts() public {
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        address frontrunner = makeAddr("frontrunner");
+        vm.expectRevert(BridgeHTLC.NotClaimer.selector);
+        vm.prank(frontrunner);
+        htlc.claim(hash, preimage);
+
+        // operator can still claim
+        vm.prank(operator);
+        htlc.claim(hash, preimage);
+        assertEq(usdc.balanceOf(operator), amount);
+    }
+
     function test_claim_wrong_preimage_reverts() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.expectRevert(BridgeHTLC.InvalidPreimage.selector);
         vm.prank(operator);
@@ -126,7 +141,7 @@ contract BridgeHTLCTest is Test {
 
     function test_claim_after_deadline_reverts() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.warp(deadline);
         vm.expectRevert(BridgeHTLC.DeadlinePassed.selector);
@@ -144,7 +159,7 @@ contract BridgeHTLCTest is Test {
 
     function test_refund_after_deadline() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.warp(deadline);
         htlc.refund(hash);
@@ -155,7 +170,7 @@ contract BridgeHTLCTest is Test {
 
     function test_refund_before_deadline_reverts() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.expectRevert(BridgeHTLC.DeadlineNotPassed.selector);
         htlc.refund(hash);
@@ -163,7 +178,7 @@ contract BridgeHTLCTest is Test {
 
     function test_refund_emits_event() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.warp(deadline);
         vm.expectEmit(true, false, false, false);
@@ -179,7 +194,7 @@ contract BridgeHTLCTest is Test {
 
     function test_isActive_false_after_claim() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.prank(operator);
         htlc.claim(hash, preimage);
@@ -189,7 +204,7 @@ contract BridgeHTLCTest is Test {
 
     function test_isActive_false_after_refund() public {
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.warp(deadline);
         htlc.refund(hash);
@@ -203,7 +218,7 @@ contract BridgeHTLCTest is Test {
         uint256 totalBefore = usdc.balanceOf(alice) + usdc.balanceOf(operator);
 
         vm.prank(alice);
-        htlc.lock(hash, aliceOn2D, amount, deadline);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.prank(operator);
         htlc.claim(hash, preimage);

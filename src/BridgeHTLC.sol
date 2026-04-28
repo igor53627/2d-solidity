@@ -24,6 +24,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
 
     struct Lock {
         address sender;
+        address claimer;
         address receiverOn2D;
         uint256 amount;
         uint256 deadline;
@@ -51,6 +52,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     error AmountTooSmall();
     error ZeroAddress();
     error DeadlineTooSoon();
+    error NotClaimer();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -66,19 +68,23 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
     /// @notice Lock `amount` USDC under `hash` for bridge-in to 2D.
+    /// @param claimer The only address allowed to claim (typically the bridge operator)
     function lock(
         bytes32 hash,
+        address claimer,
         address receiverOn2D,
         uint256 amount,
         uint256 deadline
     ) external nonReentrant {
         if (locks[hash].active) revert AlreadyLocked();
         if (amount < MIN_LOCK_AMOUNT) revert AmountTooSmall();
+        if (claimer == address(0)) revert ZeroAddress();
         if (receiverOn2D == address(0)) revert ZeroAddress();
         if (deadline < block.timestamp + MIN_DEADLINE_DURATION) revert DeadlineTooSoon();
 
         locks[hash] = Lock({
             sender: msg.sender,
+            claimer: claimer,
             receiverOn2D: receiverOn2D,
             amount: amount,
             deadline: deadline,
@@ -90,15 +96,16 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         emit Locked(hash, msg.sender, receiverOn2D, amount, deadline);
     }
 
-    /// @notice Operator claims locked USDC by revealing the preimage.
+    /// @notice Authorized claimer reveals preimage and receives USDC.
     function claim(bytes32 hash, bytes32 preimage) external nonReentrant {
         Lock storage l = locks[hash];
         if (!l.active) revert NotActive();
+        if (msg.sender != l.claimer) revert NotClaimer();
         if (block.timestamp >= l.deadline) revert DeadlinePassed();
         if (sha256(abi.encodePacked(preimage)) != hash) revert InvalidPreimage();
 
         l.active = false;
-        token.safeTransfer(msg.sender, l.amount);
+        token.safeTransfer(l.claimer, l.amount);
 
         emit Claimed(hash, preimage);
     }
