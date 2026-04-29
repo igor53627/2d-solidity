@@ -26,10 +26,8 @@ contract BridgeHTLCTest is Test {
         usdc = new MockERC20("USDC", "USDC", 6);
 
         BridgeHTLC impl = new BridgeHTLC();
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(BridgeHTLC.initialize, (address(usdc), owner))
-        );
+        ERC1967Proxy proxy =
+            new ERC1967Proxy(address(impl), abi.encodeCall(BridgeHTLC.initialize, (address(usdc), owner)));
         htlc = BridgeHTLC(address(proxy));
 
         deadline = block.timestamp + 2 hours;
@@ -292,9 +290,6 @@ contract BridgeHTLCTest is Test {
     function test_initialize_zero_token_reverts() public {
         BridgeHTLC impl = new BridgeHTLC();
         vm.expectRevert(BridgeHTLC.ZeroTokenAddress.selector);
-        new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(BridgeHTLC.initialize, (address(0), owner))
-        );
+        new ERC1967Proxy(address(impl), abi.encodeCall(BridgeHTLC.initialize, (address(0), owner)));
     }
 }

@@ -10,13 +10,13 @@ contract DeployBridgeHTLC is Script {
         address token = vm.envAddress("USDC_ADDRESS");
         address owner = vm.envAddress("OWNER_ADDRESS");
 
+        require(token != address(0), "USDC_ADDRESS is zero");
+        require(owner != address(0), "OWNER_ADDRESS is zero");
+
         vm.startBroadcast();
 
         BridgeHTLC impl = new BridgeHTLC();
-        ERC1967Proxy proxy = new ERC1967Proxy(
-            address(impl),
-            abi.encodeCall(BridgeHTLC.initialize, (token, owner))
-        );
+        ERC1967Proxy proxy = new ERC1967Proxy(address(impl), abi.encodeCall(BridgeHTLC.initialize, (token, owner)));
 
         vm.stopBroadcast();
 

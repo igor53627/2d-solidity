@@ -6,7 +6,7 @@ import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/ReentrancyGuardTransient.sol";
 
 /// @title BridgeHTLC — HTLC for the 2D bridge (Ethereum side)
 /// @notice Users lock USDC under a hash+deadline. The operator claims with
@@ -14,7 +14,7 @@ import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol
 ///         refunds after the deadline.
 ///
 ///         UUPS-upgradeable. Owner should be a TimelockController.
-contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuard {
+contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
     IERC20 public token;
@@ -72,14 +72,15 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
     /// @notice Lock `amount` USDC under `hash` for bridge-in to 2D.
-    /// @param claimer The only address allowed to claim (typically the bridge operator)
-    function lock(
-        bytes32 hash,
-        address claimer,
-        address receiverOn2D,
-        uint256 amount,
-        uint256 deadline
-    ) external nonReentrant {
+    /// @param hash         sha256(preimage) — the hashlock
+    /// @param claimer      The only address allowed to claim (typically the bridge operator)
+    /// @param receiverOn2D The intended recipient address on the 2D chain
+    /// @param amount       USDC amount (6 decimals)
+    /// @param deadline     Unix timestamp after which sender can refund
+    function lock(bytes32 hash, address claimer, address receiverOn2D, uint256 amount, uint256 deadline)
+        external
+        nonReentrant
+    {
         if (locks[hash].active) revert AlreadyLocked();
         if (amount < MIN_LOCK_AMOUNT) revert AmountTooSmall();
         if (claimer == address(0)) revert ZeroClaimerAddress();
@@ -109,7 +110,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         if (sha256(abi.encodePacked(preimage)) != hash) revert InvalidPreimage();
 
         l.active = false;
-        token.safeTransfer(l.claimer, l.amount);
+        token.safeTransfer(msg.sender, l.amount);
 
         emit Claimed(hash, preimage);
     }
