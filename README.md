@@ -22,7 +22,7 @@ Alice ──lock(H, claimer, receiver, amt, dl)──▸ HTLC
                     Alice claims on 2D with preimage P
                                        │
                                        ▾
-        HTLC ◂──claim(H, P)── Operator (preimage now public)
+        HTLC ◂──claim(sender, H, P)── Operator (preimage now public)
 ```
 
 **Bridge-in** (Ethereum → 2D):
@@ -33,7 +33,7 @@ Alice ──lock(H, claimer, receiver, amt, dl)──▸ HTLC
 4. Alice claims on 2D by revealing the preimage
 5. Operator uses the revealed preimage to `claim` the original USDC on Ethereum
 
-If the operator never locks on 2D, anyone can call `refund(hash)` after the deadline — USDC returns to the original sender.
+If the operator never locks on 2D, anyone can call `refund(sender, hash)` after the deadline — USDC returns to the original sender.
 
 ### Key design choices
 
