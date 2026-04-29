@@ -55,7 +55,7 @@ event Locked(
 ### `isActive` view
 
 ```solidity
-function isActive(bytes32 hash) external view returns (bool);
+function isActive(address sender, bytes32 hash) external view returns (bool);
 ```
 
 Returns whether a lock is still active (not yet claimed or refunded). The 2D verifier queries this to confirm that a `refill_mint` references a lock that hasn't already been settled.
@@ -65,16 +65,17 @@ Returns whether a lock is still active (not yet claimed or refunded). The 2D ver
 | Function | Who calls | What it does |
 |---|---|---|
 | `lock(hash, claimer, receiverOn2D, amount, deadline)` | User | Escrows USDC under hash H; binds claim right to `claimer` |
-| `claim(hash, preimage)` | Claimer only | Reveals preimage, receives USDC |
-| `refund(hash)` | Anyone | Returns USDC to sender after deadline |
-| `isActive(hash)` | Verifier | View: is the lock still live? |
+| `claim(sender, hash, preimage)` | Claimer only | Reveals preimage, receives USDC |
+| `refund(sender, hash)` | Anyone | Returns USDC to sender after deadline |
+| `isActive(sender, hash)` | Verifier | View: is the lock still live? |
 
 ### Protections (see [PR #1](https://github.com/igor53627/2d-solidity/pull/1))
 
 - **UUPS proxy** -- upgradeable, owner should be a TimelockController
+- **Sender-namespaced locks** -- storage key is `keccak256(sender, hash)`, prevents hash-squatting
 - **Anti-griefing** -- `MIN_LOCK_AMOUNT = 1 USDC`, `MIN_DEADLINE_DURATION = 1 hour`
 - **Anti-frontrunning** -- `claimer` bound at lock time; `claim()` enforces `msg.sender == claimer`
-- **ReentrancyGuard** + **SafeERC20** -- defense-in-depth
+- **ReentrancyGuardTransient** + **SafeERC20** -- defense-in-depth
 
 ### Trust model
 
@@ -91,7 +92,7 @@ forge build
 forge test -vv
 ```
 
-28 tests: lock, claim, refund, isActive, all revert cases, event emission, balance conservation, upgrade persistence.
+30 tests: lock, claim, refund, isActive, all revert cases, event emission, balance conservation, upgrade persistence.
 
 ### Deploy
 

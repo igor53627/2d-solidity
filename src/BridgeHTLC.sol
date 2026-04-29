@@ -42,8 +42,8 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         uint256 deadline
     );
 
-    event Claimed(bytes32 indexed hash, bytes32 preimage);
-    event Refunded(bytes32 indexed hash);
+    event Claimed(bytes32 indexed hash, address indexed sender, bytes32 preimage);
+    event Refunded(bytes32 indexed hash, address indexed sender);
 
     error AlreadyLocked();
     error NotActive();
@@ -71,6 +71,10 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     // solhint-disable-next-line no-empty-blocks
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
+    function _lockId(address sender, bytes32 hash) internal pure returns (bytes32) {
+        return keccak256(abi.encode(sender, hash));
+    }
+
     /// @notice Lock `amount` USDC under `hash` for bridge-in to 2D.
     /// @param hash         sha256(preimage) — the hashlock
     /// @param claimer      The only address allowed to claim (typically the bridge operator)
@@ -81,13 +85,14 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         external
         nonReentrant
     {
-        if (locks[hash].active) revert AlreadyLocked();
+        bytes32 id = _lockId(msg.sender, hash);
+        if (locks[id].active) revert AlreadyLocked();
         if (amount < MIN_LOCK_AMOUNT) revert AmountTooSmall();
         if (claimer == address(0)) revert ZeroClaimerAddress();
         if (receiverOn2D == address(0)) revert ZeroReceiverAddress();
         if (deadline < block.timestamp + MIN_DEADLINE_DURATION) revert DeadlineTooSoon();
 
-        locks[hash] = Lock({
+        locks[id] = Lock({
             sender: msg.sender,
             claimer: claimer,
             receiverOn2D: receiverOn2D,
@@ -102,8 +107,12 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     }
 
     /// @notice Authorized claimer reveals preimage and receives USDC.
-    function claim(bytes32 hash, bytes32 preimage) external nonReentrant {
-        Lock storage l = locks[hash];
+    /// @param sender The address that created the lock
+    /// @param hash   The hashlock
+    /// @param preimage The preimage such that sha256(preimage) == hash
+    function claim(address sender, bytes32 hash, bytes32 preimage) external nonReentrant {
+        bytes32 id = _lockId(sender, hash);
+        Lock storage l = locks[id];
         if (!l.active) revert NotActive();
         if (msg.sender != l.claimer) revert NotClaimer();
         if (block.timestamp >= l.deadline) revert DeadlinePassed();
@@ -112,24 +121,29 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         l.active = false;
         token.safeTransfer(msg.sender, l.amount);
 
-        emit Claimed(hash, preimage);
+        emit Claimed(hash, sender, preimage);
     }
 
-    /// @notice Sender refunds after deadline passes without a claim.
-    function refund(bytes32 hash) external nonReentrant {
-        Lock storage l = locks[hash];
+    /// @notice Anyone can refund after deadline passes without a claim.
+    /// @param sender The address that created the lock
+    /// @param hash   The hashlock
+    function refund(address sender, bytes32 hash) external nonReentrant {
+        bytes32 id = _lockId(sender, hash);
+        Lock storage l = locks[id];
         if (!l.active) revert NotActive();
         if (block.timestamp < l.deadline) revert DeadlineNotPassed();
 
         l.active = false;
         token.safeTransfer(l.sender, l.amount);
 
-        emit Refunded(hash);
+        emit Refunded(hash, sender);
     }
 
     /// @notice View: is the lock still active and claimable?
-    function isActive(bytes32 hash) external view returns (bool) {
-        return locks[hash].active;
+    /// @param sender The address that created the lock
+    /// @param hash   The hashlock
+    function isActive(address sender, bytes32 hash) external view returns (bool) {
+        return locks[_lockId(sender, hash)].active;
     }
 
     uint256[48] private __gap;

@@ -43,7 +43,7 @@ contract BridgeHTLCTest is Test {
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
-        assertTrue(htlc.isActive(hash));
+        assertTrue(htlc.isActive(alice, hash));
         assertEq(usdc.balanceOf(address(htlc)), amount);
         assertEq(usdc.balanceOf(alice), 10_000e6 - amount);
     }
@@ -63,6 +63,22 @@ contract BridgeHTLCTest is Test {
         vm.expectRevert(BridgeHTLC.AlreadyLocked.selector);
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+    }
+
+    function test_lock_same_hash_different_sender_succeeds() public {
+        address bob = makeAddr("bob");
+        usdc.mint(bob, 10_000e6);
+        vm.prank(bob);
+        usdc.approve(address(htlc), type(uint256).max);
+
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        vm.prank(bob);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        assertTrue(htlc.isActive(alice, hash));
+        assertTrue(htlc.isActive(bob, hash));
     }
 
     function test_lock_below_minimum_reverts() public {
@@ -93,7 +109,32 @@ contract BridgeHTLCTest is Test {
         uint256 exactMin = block.timestamp + 1 hours;
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, exactMin);
-        assertTrue(htlc.isActive(hash));
+        assertTrue(htlc.isActive(alice, hash));
+    }
+
+    // ── anti-griefing ──────────────────────────────────────
+
+    function test_hash_squatting_does_not_block_victim() public {
+        address attacker = makeAddr("attacker");
+        usdc.mint(attacker, 10e6);
+        vm.prank(attacker);
+        usdc.approve(address(htlc), type(uint256).max);
+
+        // attacker front-runs with same hash
+        vm.prank(attacker);
+        htlc.lock(hash, attacker, attacker, 1e6, deadline);
+
+        // alice's lock still succeeds — different sender namespace
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        assertTrue(htlc.isActive(alice, hash));
+        assertTrue(htlc.isActive(attacker, hash));
+
+        // alice's operator can still claim
+        vm.prank(operator);
+        htlc.claim(alice, hash, preimage);
+        assertEq(usdc.balanceOf(operator), amount);
     }
 
     // ── claim ───────────────────────────────────────────────
@@ -103,9 +144,9 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.prank(operator);
-        htlc.claim(hash, preimage);
+        htlc.claim(alice, hash, preimage);
 
-        assertFalse(htlc.isActive(hash));
+        assertFalse(htlc.isActive(alice, hash));
         assertEq(usdc.balanceOf(operator), amount);
     }
 
@@ -113,11 +154,11 @@ contract BridgeHTLCTest is Test {
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
-        vm.expectEmit(true, false, false, true);
-        emit BridgeHTLC.Claimed(hash, preimage);
+        vm.expectEmit(true, true, false, true);
+        emit BridgeHTLC.Claimed(hash, alice, preimage);
 
         vm.prank(operator);
-        htlc.claim(hash, preimage);
+        htlc.claim(alice, hash, preimage);
     }
 
     function test_claim_frontrun_by_third_party_reverts() public {
@@ -127,11 +168,11 @@ contract BridgeHTLCTest is Test {
         address frontrunner = makeAddr("frontrunner");
         vm.expectRevert(BridgeHTLC.NotClaimer.selector);
         vm.prank(frontrunner);
-        htlc.claim(hash, preimage);
+        htlc.claim(alice, hash, preimage);
 
         // operator can still claim
         vm.prank(operator);
-        htlc.claim(hash, preimage);
+        htlc.claim(alice, hash, preimage);
         assertEq(usdc.balanceOf(operator), amount);
     }
 
@@ -141,7 +182,7 @@ contract BridgeHTLCTest is Test {
 
         vm.expectRevert(BridgeHTLC.InvalidPreimage.selector);
         vm.prank(operator);
-        htlc.claim(hash, bytes32(uint256(999)));
+        htlc.claim(alice, hash, bytes32(uint256(999)));
     }
 
     function test_claim_after_deadline_reverts() public {
@@ -151,13 +192,13 @@ contract BridgeHTLCTest is Test {
         vm.warp(deadline);
         vm.expectRevert(BridgeHTLC.DeadlinePassed.selector);
         vm.prank(operator);
-        htlc.claim(hash, preimage);
+        htlc.claim(alice, hash, preimage);
     }
 
     function test_claim_inactive_reverts() public {
         vm.expectRevert(BridgeHTLC.NotActive.selector);
         vm.prank(operator);
-        htlc.claim(hash, preimage);
+        htlc.claim(alice, hash, preimage);
     }
 
     // ── refund ──────────────────────────────────────────────
@@ -167,9 +208,9 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.warp(deadline);
-        htlc.refund(hash);
+        htlc.refund(alice, hash);
 
-        assertFalse(htlc.isActive(hash));
+        assertFalse(htlc.isActive(alice, hash));
         assertEq(usdc.balanceOf(alice), 10_000e6);
     }
 
@@ -178,7 +219,7 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.expectRevert(BridgeHTLC.DeadlineNotPassed.selector);
-        htlc.refund(hash);
+        htlc.refund(alice, hash);
     }
 
     function test_refund_by_third_party_succeeds() public {
@@ -188,9 +229,9 @@ contract BridgeHTLCTest is Test {
         vm.warp(deadline);
         address anyone = makeAddr("anyone");
         vm.prank(anyone);
-        htlc.refund(hash);
+        htlc.refund(alice, hash);
 
-        assertFalse(htlc.isActive(hash));
+        assertFalse(htlc.isActive(alice, hash));
         assertEq(usdc.balanceOf(alice), 10_000e6);
     }
 
@@ -199,15 +240,15 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.warp(deadline);
-        vm.expectEmit(true, false, false, false);
-        emit BridgeHTLC.Refunded(hash);
-        htlc.refund(hash);
+        vm.expectEmit(true, true, false, false);
+        emit BridgeHTLC.Refunded(hash, alice);
+        htlc.refund(alice, hash);
     }
 
     // ── isActive ────────────────────────────────────────────
 
     function test_isActive_false_for_unknown_hash() public view {
-        assertFalse(htlc.isActive(bytes32(uint256(123))));
+        assertFalse(htlc.isActive(alice, bytes32(uint256(123))));
     }
 
     function test_isActive_false_after_claim() public {
@@ -215,9 +256,9 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.prank(operator);
-        htlc.claim(hash, preimage);
+        htlc.claim(alice, hash, preimage);
 
-        assertFalse(htlc.isActive(hash));
+        assertFalse(htlc.isActive(alice, hash));
     }
 
     function test_isActive_false_after_refund() public {
@@ -225,9 +266,9 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.warp(deadline);
-        htlc.refund(hash);
+        htlc.refund(alice, hash);
 
-        assertFalse(htlc.isActive(hash));
+        assertFalse(htlc.isActive(alice, hash));
     }
 
     // ── balance conservation ────────────────────────────────
@@ -239,7 +280,7 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
         vm.prank(operator);
-        htlc.claim(hash, preimage);
+        htlc.claim(alice, hash, preimage);
 
         uint256 totalAfter = usdc.balanceOf(alice) + usdc.balanceOf(operator);
         assertEq(totalBefore, totalAfter);
@@ -258,7 +299,6 @@ contract BridgeHTLCTest is Test {
         BridgeHTLC newImpl = new BridgeHTLC();
         vm.prank(owner);
         htlc.upgradeToAndCall(address(newImpl), "");
-        // still works after upgrade
         assertTrue(address(htlc.token()) == address(usdc));
     }
 
@@ -270,9 +310,9 @@ contract BridgeHTLCTest is Test {
         vm.prank(owner);
         htlc.upgradeToAndCall(address(newImpl), "");
 
-        assertTrue(htlc.isActive(hash));
+        assertTrue(htlc.isActive(alice, hash));
         vm.prank(operator);
-        htlc.claim(hash, preimage);
+        htlc.claim(alice, hash, preimage);
         assertEq(usdc.balanceOf(operator), amount);
     }
 
