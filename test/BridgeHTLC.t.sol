@@ -3,6 +3,7 @@ pragma solidity ^0.8.25;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
+import {OwnableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
 import {BridgeHTLC} from "../src/BridgeHTLC.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 
@@ -72,8 +73,14 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, 999_999, deadline); // < 1 USDC
     }
 
+    function test_lock_zero_claimer_reverts() public {
+        vm.expectRevert(BridgeHTLC.ZeroClaimerAddress.selector);
+        vm.prank(alice);
+        htlc.lock(hash, address(0), aliceOn2D, amount, deadline);
+    }
+
     function test_lock_zero_receiver_reverts() public {
-        vm.expectRevert(BridgeHTLC.ZeroAddress.selector);
+        vm.expectRevert(BridgeHTLC.ZeroReceiverAddress.selector);
         vm.prank(alice);
         htlc.lock(hash, operator, address(0), amount, deadline);
     }
@@ -85,7 +92,7 @@ contract BridgeHTLCTest is Test {
     }
 
     function test_lock_deadline_exactly_min_succeeds() public {
-        uint256 exactMin = block.timestamp + 1 hours + 1;
+        uint256 exactMin = block.timestamp + 1 hours;
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, exactMin);
         assertTrue(htlc.isActive(hash));
@@ -176,6 +183,19 @@ contract BridgeHTLCTest is Test {
         htlc.refund(hash);
     }
 
+    function test_refund_by_third_party_succeeds() public {
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        vm.warp(deadline);
+        address anyone = makeAddr("anyone");
+        vm.prank(anyone);
+        htlc.refund(hash);
+
+        assertFalse(htlc.isActive(hash));
+        assertEq(usdc.balanceOf(alice), 10_000e6);
+    }
+
     function test_refund_emits_event() public {
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
@@ -231,7 +251,7 @@ contract BridgeHTLCTest is Test {
 
     function test_non_owner_cannot_upgrade() public {
         BridgeHTLC newImpl = new BridgeHTLC();
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, alice));
         vm.prank(alice);
         htlc.upgradeToAndCall(address(newImpl), "");
     }
@@ -244,6 +264,20 @@ contract BridgeHTLCTest is Test {
         assertTrue(address(htlc.token()) == address(usdc));
     }
 
+    function test_lock_persists_after_upgrade() public {
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        BridgeHTLC newImpl = new BridgeHTLC();
+        vm.prank(owner);
+        htlc.upgradeToAndCall(address(newImpl), "");
+
+        assertTrue(htlc.isActive(hash));
+        vm.prank(operator);
+        htlc.claim(hash, preimage);
+        assertEq(usdc.balanceOf(operator), amount);
+    }
+
     function test_cannot_initialize_twice() public {
         vm.expectRevert();
         htlc.initialize(address(usdc), owner);
@@ -253,5 +287,14 @@ contract BridgeHTLCTest is Test {
         BridgeHTLC impl = new BridgeHTLC();
         vm.expectRevert();
         impl.initialize(address(usdc), owner);
+    }
+
+    function test_initialize_zero_token_reverts() public {
+        BridgeHTLC impl = new BridgeHTLC();
+        vm.expectRevert(BridgeHTLC.ZeroTokenAddress.selector);
+        new ERC1967Proxy(
+            address(impl),
+            abi.encodeCall(BridgeHTLC.initialize, (address(0), owner))
+        );
     }
 }

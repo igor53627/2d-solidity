@@ -51,7 +51,9 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     error DeadlinePassed();
     error InvalidPreimage();
     error AmountTooSmall();
-    error ZeroAddress();
+    error ZeroClaimerAddress();
+    error ZeroReceiverAddress();
+    error ZeroTokenAddress();
     error DeadlineTooSoon();
     error NotClaimer();
 
@@ -61,6 +63,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     }
 
     function initialize(address _token, address _owner) external initializer {
+        if (_token == address(0)) revert ZeroTokenAddress();
         __Ownable_init(_owner);
         token = IERC20(_token);
     }
@@ -79,8 +82,8 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     ) external nonReentrant {
         if (locks[hash].active) revert AlreadyLocked();
         if (amount < MIN_LOCK_AMOUNT) revert AmountTooSmall();
-        if (claimer == address(0)) revert ZeroAddress();
-        if (receiverOn2D == address(0)) revert ZeroAddress();
+        if (claimer == address(0)) revert ZeroClaimerAddress();
+        if (receiverOn2D == address(0)) revert ZeroReceiverAddress();
         if (deadline < block.timestamp + MIN_DEADLINE_DURATION) revert DeadlineTooSoon();
 
         locks[hash] = Lock({
@@ -127,4 +130,6 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     function isActive(bytes32 hash) external view returns (bool) {
         return locks[hash].active;
     }
+
+    uint256[48] private __gap;
 }

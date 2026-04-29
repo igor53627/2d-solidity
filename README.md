@@ -4,14 +4,14 @@ Ethereum-side contracts for the [2D bridge](https://github.com/igor53627/2d). Cu
 
 ## BridgeHTLC
 
-USDC-based HTLC that settles cross-chain swaps between Ethereum and 2D via preimage reveal. No validator federation, no multisig unlock, no wrapped tokens.
+USDC-based HTLC that settles cross-chain swaps between Ethereum and 2D via preimage reveal. UUPS-upgradeable (owner should be a TimelockController). No validator federation, no multisig unlock, no wrapped tokens.
 
 ### How it works
 
 ```
 Ethereum                              2D chain
 ────────                              ────────
-Alice ──lock(H, receiver, amt, dl)──▸ HTLC
+Alice ──lock(H, claimer, receiver, amt, dl)──▸ HTLC
                                        │
                     Operator sees Locked event at finality
                                        │
@@ -27,29 +27,30 @@ Alice ──lock(H, receiver, amt, dl)──▸ HTLC
 
 **Bridge-in** (Ethereum → 2D):
 
-1. Alice calls `lock(hash, receiverOn2D, amount, deadline)` -- USDC goes into escrow
+1. Alice calls `lock(hash, claimer, receiverOn2D, amount, deadline)` -- USDC goes into escrow, only `claimer` (the operator) can claim
 2. Operator waits for Ethereum finality (~12-15 min)
 3. Operator mints USD-stable on 2D and locks it in the 2D HTLC for Alice
 4. Alice claims on 2D by revealing the preimage
 5. Operator uses the revealed preimage to `claim` the original USDC on Ethereum
 
-If the operator never locks on 2D, Alice calls `refund(hash)` after the deadline and gets her USDC back.
+If the operator never locks on 2D, anyone can call `refund(hash)` after the deadline — USDC returns to the original sender.
 
-### Key design choice: `receiverOn2D`
+### Key design choices
 
-The `Locked` event includes the intended 2D recipient address:
+**`claimer` (anti-front-running).** Each lock binds claim rights to a specific address (the operator). Third parties who discover the preimage cannot front-run the claim. The `claimer` is the third indexed topic in the `Locked` event.
+
+**`receiverOn2D`.** The `Locked` event includes the intended 2D recipient address (non-indexed). The 2D verifier cross-checks that the operator's lock on the 2D side routes funds to the correct person.
 
 ```solidity
 event Locked(
     bytes32 indexed hash,
     address indexed sender,
-    address indexed receiverOn2D,
+    address indexed claimer,
+    address receiverOn2D,
     uint256 amount,
     uint256 deadline
 );
 ```
-
-This lets the 2D verifier cross-check that the operator's lock on the 2D side actually routes funds to the right person. Without this field, a compromised operator could lock to an attacker-controlled address instead.
 
 ### `isActive` view
 
@@ -90,7 +91,13 @@ forge build
 forge test -vv
 ```
 
-17 tests: lock, claim, refund, isActive, all revert cases, event emission, balance conservation.
+28 tests: lock, claim, refund, isActive, all revert cases, event emission, balance conservation, upgrade persistence.
+
+### Deploy
+
+```bash
+USDC_ADDRESS=0x... OWNER_ADDRESS=0x... forge script script/DeployBridgeHTLC.s.sol --rpc-url $RPC_URL --broadcast
+```
 
 ## Related
 
