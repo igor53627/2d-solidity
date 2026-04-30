@@ -19,9 +19,6 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
 
     IERC20 public token;
 
-    uint256 public constant MIN_LOCK_AMOUNT = 1e6; // 1 USDC (6 decimals)
-    uint256 public constant MIN_DEADLINE_DURATION = 1 hours;
-
     struct Lock {
         address sender; // never cleared post-settlement; doubles as "ever-used" sentinel
         address receiverOn2D;
@@ -32,6 +29,10 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     }
 
     mapping(bytes32 => Lock) public locks;
+
+    uint256 public minLockAmount;
+    uint256 public minDeadlineDuration;
+    uint256 public maxDeadlineDuration;
 
     event Locked(
         bytes32 indexed hash,
@@ -45,6 +46,10 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     event Claimed(bytes32 indexed hash, address indexed sender, bytes32 preimage);
     event Refunded(bytes32 indexed hash, address indexed sender);
 
+    event MinLockAmountUpdated(uint256 oldValue, uint256 newValue);
+    event MinDeadlineDurationUpdated(uint256 oldValue, uint256 newValue);
+    event MaxDeadlineDurationUpdated(uint256 oldValue, uint256 newValue);
+
     error HashAlreadyUsed();
     error NotActive();
     error DeadlineNotPassed();
@@ -55,7 +60,9 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     error ZeroReceiverAddress();
     error ZeroTokenAddress();
     error DeadlineTooSoon();
+    error DeadlineTooFar();
     error NotClaimer();
+    error InvalidParameter();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -66,6 +73,15 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         if (_token == address(0)) revert ZeroTokenAddress();
         __Ownable_init(_owner);
         token = IERC20(_token);
+        minLockAmount = 1e6;
+        minDeadlineDuration = 1 hours;
+        maxDeadlineDuration = 24 hours;
+    }
+
+    function initializeV2() external reinitializer(2) {
+        minLockAmount = 1e6;
+        minDeadlineDuration = 1 hours;
+        maxDeadlineDuration = 24 hours;
     }
 
     // solhint-disable-next-line no-empty-blocks
@@ -74,6 +90,31 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     function _lockId(address sender, bytes32 hash) internal pure returns (bytes32) {
         return keccak256(abi.encode(sender, hash));
     }
+
+    // ── governance setters ──────────────────────────────────
+
+    function setMinLockAmount(uint256 _amount) external onlyOwner {
+        if (_amount == 0) revert InvalidParameter();
+        uint256 old = minLockAmount;
+        minLockAmount = _amount;
+        emit MinLockAmountUpdated(old, _amount);
+    }
+
+    function setMinDeadlineDuration(uint256 _duration) external onlyOwner {
+        if (_duration == 0 || _duration >= maxDeadlineDuration) revert InvalidParameter();
+        uint256 old = minDeadlineDuration;
+        minDeadlineDuration = _duration;
+        emit MinDeadlineDurationUpdated(old, _duration);
+    }
+
+    function setMaxDeadlineDuration(uint256 _duration) external onlyOwner {
+        if (_duration <= minDeadlineDuration) revert InvalidParameter();
+        uint256 old = maxDeadlineDuration;
+        maxDeadlineDuration = _duration;
+        emit MaxDeadlineDurationUpdated(old, _duration);
+    }
+
+    // ── core ────────────────────────────────────────────────
 
     /// @notice Lock `amount` USDC under `hash` for bridge-in to 2D.
     /// @param hash         sha256(preimage) — the hashlock
@@ -87,10 +128,11 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     {
         bytes32 id = _lockId(msg.sender, hash);
         if (locks[id].sender != address(0)) revert HashAlreadyUsed();
-        if (amount < MIN_LOCK_AMOUNT) revert AmountTooSmall();
+        if (amount < minLockAmount) revert AmountTooSmall();
         if (claimer == address(0)) revert ZeroClaimerAddress();
         if (receiverOn2D == address(0)) revert ZeroReceiverAddress();
-        if (deadline < block.timestamp + MIN_DEADLINE_DURATION) revert DeadlineTooSoon();
+        if (deadline < block.timestamp + minDeadlineDuration) revert DeadlineTooSoon();
+        if (deadline > block.timestamp + maxDeadlineDuration) revert DeadlineTooFar();
 
         locks[id] = Lock({
             sender: msg.sender,
@@ -147,5 +189,5 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         return l.active && block.timestamp < l.deadline;
     }
 
-    uint256[48] private __gap;
+    uint256[45] private __gap;
 }

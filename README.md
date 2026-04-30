@@ -68,12 +68,15 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 | `claim(sender, hash, preimage)` | Claimer only | Reveals preimage, receives USDC |
 | `refund(sender, hash)` | Anyone | Returns USDC to sender after deadline |
 | `isActive(sender, hash)` | Verifier | View: is the lock still claimable? |
+| `setMinLockAmount(amount)` | Owner | Update minimum lock amount |
+| `setMinDeadlineDuration(duration)` | Owner | Update minimum deadline duration (must be < max) |
+| `setMaxDeadlineDuration(duration)` | Owner | Update maximum deadline duration (must be > min) |
 
-### Protections (see [PR #1](https://github.com/igor53627/2d-solidity/pull/1))
+### Protections
 
 - **UUPS proxy** -- upgradeable, owner should be a TimelockController
 - **Sender-namespaced locks** -- storage key is `keccak256(sender, hash)`, prevents hash-squatting
-- **Anti-griefing** -- `MIN_LOCK_AMOUNT = 1 USDC`, `MIN_DEADLINE_DURATION = 1 hour`
+- **Anti-griefing** -- governance-configurable: `minLockAmount` (default 1 USDC), `minDeadlineDuration` (default 1 hour), `maxDeadlineDuration` (default 24 hours). Owner can adjust via setters
 - **Anti-frontrunning** -- `claimer` bound at lock time; `claim()` enforces `msg.sender == claimer`
 - **ReentrancyGuardTransient** + **SafeERC20** -- defense-in-depth
 
