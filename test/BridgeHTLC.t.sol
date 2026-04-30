@@ -112,6 +112,19 @@ contract BridgeHTLCTest is Test {
         assertTrue(htlc.isActive(alice, hash));
     }
 
+    function test_lock_deadline_too_far_reverts() public {
+        vm.expectRevert(BridgeHTLC.DeadlineTooFar.selector);
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, block.timestamp + 25 hours);
+    }
+
+    function test_lock_deadline_exactly_max_succeeds() public {
+        uint256 exactMax = block.timestamp + 24 hours;
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, exactMax);
+        assertTrue(htlc.isActive(alice, hash));
+    }
+
     // ── anti-griefing ──────────────────────────────────────
 
     function test_hash_squatting_does_not_block_victim() public {
@@ -308,6 +321,116 @@ contract BridgeHTLCTest is Test {
         assertFalse(htlc.isActive(alice, hash));
     }
 
+    // ── governance setters ───────────────────────────────────
+
+    function test_initialize_sets_defaults() public view {
+        assertEq(htlc.minLockAmount(), 1e6);
+        assertEq(htlc.minDeadlineDuration(), 1 hours);
+        assertEq(htlc.maxDeadlineDuration(), 24 hours);
+    }
+
+    function test_setMinLockAmount() public {
+        vm.prank(owner);
+        htlc.setMinLockAmount(5e6);
+        assertEq(htlc.minLockAmount(), 5e6);
+    }
+
+    function test_setMinLockAmount_zero_reverts() public {
+        vm.expectRevert(BridgeHTLC.InvalidParameter.selector);
+        vm.prank(owner);
+        htlc.setMinLockAmount(0);
+    }
+
+    function test_setMinLockAmount_non_owner_reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, alice));
+        vm.prank(alice);
+        htlc.setMinLockAmount(5e6);
+    }
+
+    function test_setMinDeadlineDuration() public {
+        vm.prank(owner);
+        htlc.setMinDeadlineDuration(2 hours);
+        assertEq(htlc.minDeadlineDuration(), 2 hours);
+    }
+
+    function test_setMinDeadlineDuration_gte_max_reverts() public {
+        vm.expectRevert(BridgeHTLC.InvalidParameter.selector);
+        vm.prank(owner);
+        htlc.setMinDeadlineDuration(24 hours);
+    }
+
+    function test_setMaxDeadlineDuration() public {
+        vm.prank(owner);
+        htlc.setMaxDeadlineDuration(48 hours);
+        assertEq(htlc.maxDeadlineDuration(), 48 hours);
+    }
+
+    function test_setMaxDeadlineDuration_lte_min_reverts() public {
+        vm.expectRevert(BridgeHTLC.InvalidParameter.selector);
+        vm.prank(owner);
+        htlc.setMaxDeadlineDuration(1 hours);
+    }
+
+    function test_setMinLockAmount_emits_event() public {
+        vm.expectEmit(false, false, false, true);
+        emit BridgeHTLC.MinLockAmountUpdated(1e6, 5e6);
+        vm.prank(owner);
+        htlc.setMinLockAmount(5e6);
+    }
+
+    function test_setMinDeadlineDuration_non_owner_reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, alice));
+        vm.prank(alice);
+        htlc.setMinDeadlineDuration(2 hours);
+    }
+
+    function test_setMaxDeadlineDuration_non_owner_reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, alice));
+        vm.prank(alice);
+        htlc.setMaxDeadlineDuration(48 hours);
+    }
+
+    function test_setMinDeadlineDuration_emits_event() public {
+        vm.expectEmit(false, false, false, true);
+        emit BridgeHTLC.MinDeadlineDurationUpdated(1 hours, 2 hours);
+        vm.prank(owner);
+        htlc.setMinDeadlineDuration(2 hours);
+    }
+
+    function test_setMaxDeadlineDuration_emits_event() public {
+        vm.expectEmit(false, false, false, true);
+        emit BridgeHTLC.MaxDeadlineDurationUpdated(24 hours, 48 hours);
+        vm.prank(owner);
+        htlc.setMaxDeadlineDuration(48 hours);
+    }
+
+    function test_updated_minLockAmount_affects_lock() public {
+        vm.prank(owner);
+        htlc.setMinLockAmount(500e6);
+
+        vm.expectRevert(BridgeHTLC.AmountTooSmall.selector);
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, 100e6, deadline);
+    }
+
+    function test_updated_minDeadlineDuration_affects_lock() public {
+        vm.prank(owner);
+        htlc.setMinDeadlineDuration(3 hours);
+
+        vm.expectRevert(BridgeHTLC.DeadlineTooSoon.selector);
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, block.timestamp + 2 hours);
+    }
+
+    function test_updated_maxDeadlineDuration_affects_lock() public {
+        vm.prank(owner);
+        htlc.setMaxDeadlineDuration(4 hours);
+
+        vm.expectRevert(BridgeHTLC.DeadlineTooFar.selector);
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, block.timestamp + 5 hours);
+    }
+
     // ── balance conservation ────────────────────────────────
 
     function test_full_cycle_conserves_total_supply() public {
@@ -351,6 +474,20 @@ contract BridgeHTLCTest is Test {
         vm.prank(operator);
         htlc.claim(alice, hash, preimage);
         assertEq(usdc.balanceOf(operator), amount);
+    }
+
+    function test_upgradeToAndCall_initializeV2_sets_params() public {
+        BridgeHTLC newImpl = new BridgeHTLC();
+        vm.prank(owner);
+        htlc.upgradeToAndCall(address(newImpl), abi.encodeCall(BridgeHTLC.initializeV2, ()));
+
+        assertEq(htlc.minLockAmount(), 1e6);
+        assertEq(htlc.minDeadlineDuration(), 1 hours);
+        assertEq(htlc.maxDeadlineDuration(), 24 hours);
+
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+        assertTrue(htlc.isActive(alice, hash));
     }
 
     function test_cannot_initialize_twice() public {
