@@ -60,7 +60,7 @@ contract BridgeHTLCTest is Test {
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
-        vm.expectRevert(BridgeHTLC.AlreadyLocked.selector);
+        vm.expectRevert(BridgeHTLC.HashAlreadyUsed.selector);
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
     }
@@ -268,6 +268,43 @@ contract BridgeHTLCTest is Test {
         vm.warp(deadline);
         htlc.refund(alice, hash);
 
+        assertFalse(htlc.isActive(alice, hash));
+    }
+
+    function test_lock_after_refund_same_hash_reverts() public {
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        vm.warp(deadline);
+        htlc.refund(alice, hash);
+
+        vm.expectRevert(BridgeHTLC.HashAlreadyUsed.selector);
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, block.timestamp + 2 hours);
+    }
+
+    function test_lock_after_claim_same_hash_reverts() public {
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        vm.prank(operator);
+        htlc.claim(alice, hash, preimage);
+
+        vm.expectRevert(BridgeHTLC.HashAlreadyUsed.selector);
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, block.timestamp + 2 hours);
+    }
+
+    function test_isActive_false_after_deadline_without_refund() public {
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        assertTrue(htlc.isActive(alice, hash));
+
+        vm.warp(deadline - 1);
+        assertTrue(htlc.isActive(alice, hash));
+
+        vm.warp(deadline);
         assertFalse(htlc.isActive(alice, hash));
     }
 

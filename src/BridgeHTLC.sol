@@ -23,7 +23,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     uint256 public constant MIN_DEADLINE_DURATION = 1 hours;
 
     struct Lock {
-        address sender;
+        address sender; // never cleared post-settlement; doubles as "ever-used" sentinel
         address receiverOn2D;
         uint256 amount;
         uint256 deadline;
@@ -45,7 +45,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     event Claimed(bytes32 indexed hash, address indexed sender, bytes32 preimage);
     event Refunded(bytes32 indexed hash, address indexed sender);
 
-    error AlreadyLocked();
+    error HashAlreadyUsed();
     error NotActive();
     error DeadlineNotPassed();
     error DeadlinePassed();
@@ -86,7 +86,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         nonReentrant
     {
         bytes32 id = _lockId(msg.sender, hash);
-        if (locks[id].active) revert AlreadyLocked();
+        if (locks[id].sender != address(0)) revert HashAlreadyUsed();
         if (amount < MIN_LOCK_AMOUNT) revert AmountTooSmall();
         if (claimer == address(0)) revert ZeroClaimerAddress();
         if (receiverOn2D == address(0)) revert ZeroReceiverAddress();
@@ -143,7 +143,8 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     /// @param sender The address that created the lock
     /// @param hash   The hashlock
     function isActive(address sender, bytes32 hash) external view returns (bool) {
-        return locks[_lockId(sender, hash)].active;
+        Lock storage l = locks[_lockId(sender, hash)];
+        return l.active && block.timestamp < l.deadline;
     }
 
     uint256[48] private __gap;

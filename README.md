@@ -58,7 +58,7 @@ event Locked(
 function isActive(address sender, bytes32 hash) external view returns (bool);
 ```
 
-Returns whether a lock is still active (not yet claimed or refunded). The 2D verifier queries this to confirm that a `refill_mint` references a lock that hasn't already been settled.
+Returns whether a lock is still active and claimable — i.e. not yet claimed, not yet refunded, and not past its deadline. The 2D verifier queries this to confirm that a `refill_mint` references a lock that is still settleable.
 
 ### Functions
 
@@ -67,7 +67,7 @@ Returns whether a lock is still active (not yet claimed or refunded). The 2D ver
 | `lock(hash, claimer, receiverOn2D, amount, deadline)` | User | Escrows USDC under hash H; binds claim right to `claimer` |
 | `claim(sender, hash, preimage)` | Claimer only | Reveals preimage, receives USDC |
 | `refund(sender, hash)` | Anyone | Returns USDC to sender after deadline |
-| `isActive(sender, hash)` | Verifier | View: is the lock still live? |
+| `isActive(sender, hash)` | Verifier | View: is the lock still claimable? |
 
 ### Protections (see [PR #1](https://github.com/igor53627/2d-solidity/pull/1))
 
@@ -92,7 +92,7 @@ forge build
 forge test -vv
 ```
 
-30 tests: lock, claim, refund, isActive, all revert cases, event emission, balance conservation, upgrade persistence.
+Comprehensive tests covering lock, claim, refund, isActive, all revert cases, event emission, balance conservation, and upgrade persistence.
 
 ### Deploy
 
