@@ -65,7 +65,7 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 | Function | Who calls | What it does |
 |---|---|---|
 | `lock(hash, claimer, receiverOn2D, amount, deadline)` | User | Escrows USDC under hash H; binds claim right to `claimer` |
-| `claim(sender, hash, preimage)` | Claimer only | Reveals preimage, receives USDC |
+| `claim(sender, hash, preimage)` | Claimer only | Reveals preimage, receives USDC (preimage single-use per claimer) |
 | `refund(sender, hash)` | Anyone | Returns USDC to sender after deadline |
 | `isActive(sender, hash)` | Verifier | View: is the lock still claimable? |
 | `setMinLockAmount(amount)` | Owner | Update minimum lock amount |
@@ -78,13 +78,14 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 - **Sender-namespaced locks** -- storage key is `keccak256(sender, hash)`, prevents hash-squatting
 - **Anti-griefing** -- governance-configurable: `minLockAmount` (default 1 USDC), `minDeadlineDuration` (default 1 hour), `maxDeadlineDuration` (default 24 hours). Owner can adjust via setters
 - **Anti-frontrunning** -- `claimer` bound at lock time; `claim()` enforces `msg.sender == claimer`
+- **Single-use preimages** -- each claimer can use a preimage only once; prevents operator from sweeping multiple locks that share a preimage
 - **ReentrancyGuardTransient** + **SafeERC20** -- defense-in-depth
 
 ### Trust model
 
 - **No unlock authority.** Funds leave the contract only via `claim(preimage)` (correct preimage + authorized claimer required) or `refund` (deadline must have passed).
 - **Operator key compromise:** cannot steal locked USDC (no `unlock` function, and claim is bound to the designated claimer). Can refuse to complete swaps (DoS). Users refund after deadline.
-- **Preimage is the only key.** Whoever knows the preimage can claim. The 2D chain publishes the preimage when Alice claims there, so the operator picks it up from on-chain data.
+- **Preimage is the only key.** The first valid claim consumes the preimage for that claimer. The 2D chain publishes the preimage when Alice claims there, so the operator picks it up from on-chain data.
 
 ## Build and test
 
