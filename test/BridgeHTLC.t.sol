@@ -321,6 +321,26 @@ contract BridgeHTLCTest is Test {
         assertFalse(htlc.isActive(alice, hash));
     }
 
+    function test_isActive_false_after_claimer_used_hash() public {
+        address bob = makeAddr("bob");
+        usdc.mint(bob, 10_000e6);
+        vm.prank(bob);
+        usdc.approve(address(htlc), type(uint256).max);
+
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        vm.prank(bob);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        // operator claims alice's lock
+        vm.prank(operator);
+        htlc.claim(alice, hash, preimage);
+
+        // bob's lock is still active in storage but isActive returns false
+        assertFalse(htlc.isActive(bob, hash));
+    }
+
     // ── governance setters ───────────────────────────────────
 
     function test_initialize_sets_defaults() public view {

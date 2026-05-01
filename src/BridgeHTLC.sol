@@ -193,7 +193,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     /// @param hash   The hashlock
     function isActive(address sender, bytes32 hash) external view returns (bool) {
         Lock storage l = locks[_lockId(sender, hash)];
-        return l.active && block.timestamp < l.deadline;
+        return l.active && block.timestamp < l.deadline && !claimerUsedHash[l.claimer][hash];
     }
 
     uint256[44] private __gap;
