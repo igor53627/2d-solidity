@@ -431,6 +431,63 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, amount, block.timestamp + 5 hours);
     }
 
+    function test_initializeV2_non_owner_reverts() public {
+        vm.expectRevert(abi.encodeWithSelector(OwnableUpgradeable.OwnableUnauthorizedAccount.selector, alice));
+        vm.prank(alice);
+        htlc.initializeV2();
+    }
+
+    function test_claim_same_preimage_twice_by_same_claimer_reverts() public {
+        address bob = makeAddr("bob");
+        usdc.mint(bob, 10_000e6);
+        vm.prank(bob);
+        usdc.approve(address(htlc), type(uint256).max);
+
+        // alice and bob lock with same hash, same claimer (operator)
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        vm.prank(bob);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        // operator claims alice's lock
+        vm.prank(operator);
+        htlc.claim(alice, hash, preimage);
+        assertEq(usdc.balanceOf(operator), amount);
+
+        // operator tries to sweep bob's lock with same preimage — blocked
+        vm.expectRevert(BridgeHTLC.PreimageAlreadyUsed.selector);
+        vm.prank(operator);
+        htlc.claim(bob, hash, preimage);
+
+        // bob can still refund after deadline
+        vm.warp(deadline);
+        htlc.refund(bob, hash);
+        assertEq(usdc.balanceOf(bob), 10_000e6);
+    }
+
+    function test_self_claim_does_not_poison_operator() public {
+        address attacker = makeAddr("attacker");
+        usdc.mint(attacker, 10e6);
+        vm.prank(attacker);
+        usdc.approve(address(htlc), type(uint256).max);
+
+        // alice locks legitimately
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        // attacker self-locks with same hash and self-claims
+        vm.prank(attacker);
+        htlc.lock(hash, attacker, attacker, 1e6, deadline);
+        vm.prank(attacker);
+        htlc.claim(attacker, hash, preimage);
+
+        // operator can still claim alice's lock — attacker's marker is scoped to attacker
+        vm.prank(operator);
+        htlc.claim(alice, hash, preimage);
+        assertEq(usdc.balanceOf(operator), amount);
+    }
+
     // ── balance conservation ────────────────────────────────
 
     function test_full_cycle_conserves_total_supply() public {

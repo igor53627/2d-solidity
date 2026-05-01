@@ -34,6 +34,8 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     uint256 public minDeadlineDuration;
     uint256 public maxDeadlineDuration;
 
+    mapping(address => mapping(bytes32 => bool)) public claimerUsedHash;
+
     event Locked(
         bytes32 indexed hash,
         address indexed sender,
@@ -62,6 +64,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     error DeadlineTooSoon();
     error DeadlineTooFar();
     error NotClaimer();
+    error PreimageAlreadyUsed();
     error InvalidParameter();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
@@ -78,7 +81,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         maxDeadlineDuration = 24 hours;
     }
 
-    function initializeV2() external reinitializer(2) {
+    function initializeV2() external onlyOwner reinitializer(2) {
         minLockAmount = 1e6;
         minDeadlineDuration = 1 hours;
         maxDeadlineDuration = 24 hours;
@@ -149,6 +152,8 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     }
 
     /// @notice Authorized claimer reveals preimage and receives USDC.
+    /// @dev Reverts with PreimageAlreadyUsed if this claimer has already
+    ///      claimed a lock with this hash — single-use per claimer.
     /// @param sender The address that created the lock
     /// @param hash   The hashlock
     /// @param preimage The preimage such that sha256(preimage) == hash
@@ -159,7 +164,9 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         if (msg.sender != l.claimer) revert NotClaimer();
         if (block.timestamp >= l.deadline) revert DeadlinePassed();
         if (sha256(abi.encodePacked(preimage)) != hash) revert InvalidPreimage();
+        if (claimerUsedHash[msg.sender][hash]) revert PreimageAlreadyUsed();
 
+        claimerUsedHash[msg.sender][hash] = true;
         l.active = false;
         token.safeTransfer(msg.sender, l.amount);
 
@@ -189,5 +196,5 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         return l.active && block.timestamp < l.deadline;
     }
 
-    uint256[45] private __gap;
+    uint256[44] private __gap;
 }
