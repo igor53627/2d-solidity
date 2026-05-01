@@ -58,7 +58,7 @@ event Locked(
 function isActive(address sender, bytes32 hash) external view returns (bool);
 ```
 
-Returns whether a lock is still active and claimable — i.e. not yet claimed, not yet refunded, and not past its deadline. The 2D verifier queries this to confirm that a `refill_mint` references a lock that is still settleable.
+Returns whether a lock is still active and claimable — i.e. not yet claimed, not yet refunded, not past its deadline, and the claimer has not already used this hash on another lock. The 2D verifier queries this to confirm that a `refill_mint` references a lock that is still settleable.
 
 ### Functions
 
