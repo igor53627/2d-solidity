@@ -100,9 +100,31 @@ Comprehensive tests covering lock, claim, refund, isActive, all revert cases, ev
 
 ### Deploy
 
+Deploys TimelockController + BridgeHTLC (implementation + proxy). The proposer is both proposer and executor on the timelock.
+
 ```bash
-USDC_ADDRESS=0x... OWNER_ADDRESS=0x... forge script script/DeployBridgeHTLC.s.sol --rpc-url $RPC_URL --broadcast
+# Testnet (EOA as proposer, 1 min delay)
+USDC_ADDRESS=0x... \
+PROPOSER_ADDRESS=0x<your-eoa> \
+TIMELOCK_DELAY=60 \
+forge script script/DeployBridgeHTLC.s.sol \
+  --rpc-url $RPC_URL \
+  --broadcast \
+  --verify \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+
+# Mainnet (Safe multisig as proposer, 48h delay)
+USDC_ADDRESS=0x... \
+PROPOSER_ADDRESS=0x<safe-multisig> \
+TIMELOCK_DELAY=172800 \
+forge script script/DeployBridgeHTLC.s.sol \
+  --rpc-url $RPC_URL \
+  --broadcast \
+  --verify \
+  --etherscan-api-key $ETHERSCAN_API_KEY
 ```
+
+Post-deploy checks run automatically: owner == timelock, token == USDC, governance params initialized. To migrate from EOA to multisig, grant PROPOSER_ROLE/EXECUTOR_ROLE to the multisig on the timelock, then revoke from the EOA.
 
 ## Security
 
