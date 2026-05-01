@@ -36,6 +36,13 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
 
     mapping(address => mapping(bytes32 => bool)) public claimerUsedHash;
 
+    /// @notice True while a lock with this (claimer, hash) is active.
+    /// @dev    Set in lock(), cleared in claim()/refund(). Prevents two
+    ///         senders from creating concurrent locks under the same
+    ///         (claimer, hash) — only one such lock could ever be claimed,
+    ///         leaving the operator short by the other lock's amount.
+    mapping(address => mapping(bytes32 => bool)) public claimerHashLocked;
+
     event Locked(
         bytes32 indexed hash,
         address indexed sender,
@@ -131,11 +138,14 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     {
         bytes32 id = _lockId(msg.sender, hash);
         if (locks[id].sender != address(0)) revert HashAlreadyUsed();
-        if (amount < minLockAmount) revert AmountTooSmall();
         if (claimer == address(0)) revert ZeroClaimerAddress();
+        if (claimerHashLocked[claimer][hash] || claimerUsedHash[claimer][hash]) revert HashAlreadyUsed();
+        if (amount < minLockAmount) revert AmountTooSmall();
         if (receiverOn2D == address(0)) revert ZeroReceiverAddress();
         if (deadline < block.timestamp + minDeadlineDuration) revert DeadlineTooSoon();
         if (deadline > block.timestamp + maxDeadlineDuration) revert DeadlineTooFar();
+
+        claimerHashLocked[claimer][hash] = true;
 
         locks[id] = Lock({
             sender: msg.sender,
@@ -167,6 +177,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         if (claimerUsedHash[msg.sender][hash]) revert PreimageAlreadyUsed();
 
         claimerUsedHash[msg.sender][hash] = true;
+        claimerHashLocked[msg.sender][hash] = false;
         l.active = false;
         token.safeTransfer(msg.sender, l.amount);
 
@@ -183,6 +194,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         if (block.timestamp < l.deadline) revert DeadlineNotPassed();
 
         l.active = false;
+        claimerHashLocked[l.claimer][hash] = false;
         token.safeTransfer(l.sender, l.amount);
 
         emit Refunded(hash, sender);
@@ -196,5 +208,5 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
         return l.active && block.timestamp < l.deadline && !claimerUsedHash[l.claimer][hash];
     }
 
-    uint256[44] private __gap;
+    uint256[43] private __gap;
 }

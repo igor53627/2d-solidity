@@ -75,7 +75,8 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 ### Protections
 
 - **UUPS proxy** -- upgradeable, owner should be a TimelockController
-- **Sender-namespaced locks** -- storage key is `keccak256(sender, hash)`, prevents hash-squatting
+- **Sender-namespaced locks** -- storage key is `keccak256(sender, hash)`, prevents hash-squatting against the victim's own slot
+- **`(claimer, hash)` uniqueness** -- only one active lock may exist per `(claimer, hash)` pair, and a hash consumed by a claim can never be reused for that claimer; prevents an attacker from cloning a victim's hash under the same operator and farming the preimage on the destination chain
 - **Anti-griefing** -- governance-configurable: `minLockAmount` (default 1 USDC), `minDeadlineDuration` (default 1 hour), `maxDeadlineDuration` (default 24 hours). Owner can adjust via setters
 - **Anti-frontrunning** -- `claimer` bound at lock time; `claim()` enforces `msg.sender == claimer`
 - **Single-use preimages** -- each claimer can use a preimage only once; prevents operator from sweeping multiple locks that share a preimage
