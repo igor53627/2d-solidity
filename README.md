@@ -104,6 +104,10 @@ Comprehensive tests covering lock, claim, refund, isActive, all revert cases, ev
 USDC_ADDRESS=0x... OWNER_ADDRESS=0x... forge script script/DeployBridgeHTLC.s.sol --rpc-url $RPC_URL --broadcast
 ```
 
+## Security
+
+- [Formal invariants](audit/INVARIANTS.md) -- 16 properties the contract must preserve
+
 ## Related
 
 - [2D chain](https://github.com/igor53627/2d) -- the L1 that this contract bridges to
