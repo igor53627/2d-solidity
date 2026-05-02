@@ -89,6 +89,12 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 - **Preimage is the only key.** The first valid claim consumes the preimage for that claimer. The 2D chain publishes the preimage when Alice claims there, so the operator picks it up from on-chain data.
 - **Mempool griefing.** A mempool observer can copy a victim's pending `(claimer, hash)` and submit a minimum-amount lock first, causing the victim's `lock()` to revert with `HashAlreadyUsed`. The griefer's funds are escrowed (claimable only with the victim's unrevealed preimage) and recovered via `refund()` after the deadline. To recover, the victim picks a fresh preimage and retries — this cannot permanently block bridging, only delay it.
 
+### Operational notes for users
+
+- **`HashAlreadyUsed` after a pending tx:** generate a fresh preimage and retry. The old hash is now public and can never be reused under the same operator (see "(claimer, hash) uniqueness").
+- **Sensitive flows: submit `lock()` privately.** Use a private-mempool relay (Flashbots Protect, MEV-Share, or your operator's intent endpoint) so the `(claimer, hash)` pair is not visible until inclusion. This eliminates the front-run window without changing contract behavior.
+- **Pre-registering an intent with the operator** (when available): the bridge operator may expose an EIP-712 intent endpoint where you sign and pre-register `(sender, hash, claimer, receiverOn2D, amount, deadline)` *before* broadcasting `lock()`. The operator only opens the destination-side HTLC for events that match a registered intent, so a squatter who copies `hash` and `claimer` from your pending tx (but not your `sender`) is ignored. See the operator runbook in the [2D chain repository](https://github.com/igor53627/2d) for the current intent schema and endpoint.
+
 ## Build and test
 
 Requires [Foundry](https://book.getfoundry.sh/).
