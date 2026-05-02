@@ -17,6 +17,12 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
+    /// @notice Hard cap on min/maxDeadlineDuration. Prevents a misconfigured
+    ///         setter from making `block.timestamp + duration` overflow in
+    ///         lock(), which would brick all new locks until governance
+    ///         lowers the value back through the timelock.
+    uint256 public constant MAX_DEADLINE_DURATION_CAP = 365 days;
+
     IERC20 public token;
 
     struct Lock {
@@ -112,6 +118,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
 
     function setMinDeadlineDuration(uint256 _duration) external onlyOwner {
         if (_duration == 0 || _duration >= maxDeadlineDuration) revert InvalidParameter();
+        if (_duration > MAX_DEADLINE_DURATION_CAP) revert InvalidParameter();
         uint256 old = minDeadlineDuration;
         minDeadlineDuration = _duration;
         emit MinDeadlineDurationUpdated(old, _duration);
@@ -119,6 +126,7 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
 
     function setMaxDeadlineDuration(uint256 _duration) external onlyOwner {
         if (_duration <= minDeadlineDuration) revert InvalidParameter();
+        if (_duration > MAX_DEADLINE_DURATION_CAP) revert InvalidParameter();
         uint256 old = maxDeadlineDuration;
         maxDeadlineDuration = _duration;
         emit MaxDeadlineDurationUpdated(old, _duration);
