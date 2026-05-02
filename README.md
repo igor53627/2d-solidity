@@ -126,11 +126,13 @@ forge script script/DeployBridgeHTLC.s.sol \
   --etherscan-api-key $ETHERSCAN_API_KEY
 ```
 
-Post-deploy checks run automatically: owner == timelock, token == USDC, governance params initialized. To migrate from EOA to multisig, grant PROPOSER_ROLE/EXECUTOR_ROLE to the multisig on the timelock, then revoke from the EOA.
+Post-deploy checks run automatically: owner == timelock, token == USDC, governance params initialized.
+
+**Production deploys must use the multisig as proposer from genesis.** The timelock is constructed with `admin=address(0)`, so DEFAULT_ADMIN_ROLE is held only by the timelock itself — any role change must go through `schedule()` → delay → `execute()` on the timelock. Worse, an EOA proposer can `cancel()` its own pending removal between schedule and execute, so post-hoc EOA→multisig migration is not a security boundary.
 
 ## Security
 
-- [Formal invariants](audit/INVARIANTS.md) -- 16 properties the contract must preserve
+- [Formal invariants](audit/INVARIANTS.md) -- 17 properties the contract must preserve
 
 ## Related
 

@@ -8,17 +8,22 @@ import {BridgeHTLC} from "../src/BridgeHTLC.sol";
 
 /// @notice Deploys TimelockController + BridgeHTLC (impl + proxy).
 ///
-/// Testnet:  PROPOSER_ADDRESS=<EOA> TIMELOCK_DELAY=60 (1 min)
+/// Testnet:  PROPOSER_ADDRESS=<EOA>           TIMELOCK_DELAY=60     (1 min)
 /// Mainnet:  PROPOSER_ADDRESS=<Safe multisig> TIMELOCK_DELAY=172800 (48h)
 ///
-/// To migrate proposer/executor from EOA to multisig later, grant
-/// PROPOSER_ROLE and EXECUTOR_ROLE to the multisig on the timelock,
-/// then revoke from the EOA.
+/// All three env vars are required; missing values revert deployment.
+///
+/// @dev Post-hoc EOA→multisig migration is NOT a security boundary.
+///      The timelock is constructed with admin=address(0), so all
+///      role changes must be scheduled and executed through the
+///      timelock itself, and the EOA proposer can cancel its own
+///      removal between schedule() and execute(). Production
+///      deployments must use the multisig as proposer from genesis.
 contract DeployBridgeHTLC is Script {
     function run() external {
         address token = vm.envAddress("USDC_ADDRESS");
         address proposer = vm.envAddress("PROPOSER_ADDRESS");
-        uint256 timelockDelay = vm.envOr("TIMELOCK_DELAY", uint256(60));
+        uint256 timelockDelay = vm.envUint("TIMELOCK_DELAY");
 
         require(token != address(0), "USDC_ADDRESS is zero");
         require(proposer != address(0), "PROPOSER_ADDRESS is zero");

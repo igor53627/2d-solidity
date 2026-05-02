@@ -129,3 +129,15 @@ refund(sender, hash) has no msg.sender restriction. On success, tokens are alway
 ```solidity
 All three functions carry nonReentrant (ReentrancyGuardTransient, EIP-1153 transient storage). State changes (locks[id].active = false, claimerUsedHash write) occur before external calls (safeTransfer/safeTransferFrom), following checks-effects-interactions.
 ```
+
+### 17. (claimer, hash) lock-time uniqueness: at most one active lock per (claimer, hash); a claimed (claimer, hash) is permanently retired.
+
+**Function:** `lock()/claim()/refund()`
+
+```solidity
+Lock-time precondition: lock(hash, claimer, ...) reverts with HashAlreadyUsed when claimerHashLocked[claimer][hash] == true OR claimerUsedHash[claimer][hash] == true.
+
+Lifecycle of claimerHashLocked[claimer][hash]: false -> true on a successful lock() with that (claimer, hash); true -> false on a successful claim() or refund() of that lock; otherwise unchanged. claimerUsedHash, in contrast, is monotonic (see #10).
+
+Together with #10, this ensures that for any (claimer, hash) at most one lock can ever reach claim(): concurrent admission is blocked at lock-time, and post-claim re-admission is blocked permanently by claimerUsedHash.
+```
