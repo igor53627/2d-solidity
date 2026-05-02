@@ -87,6 +87,7 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 - **No unlock authority.** Funds leave the contract only via `claim(preimage)` (correct preimage + authorized claimer required) or `refund` (deadline must have passed).
 - **Operator key compromise:** cannot steal locked USDC (no `unlock` function, and claim is bound to the designated claimer). Can refuse to complete swaps (DoS). Users refund after deadline.
 - **Preimage is the only key.** The first valid claim consumes the preimage for that claimer. The 2D chain publishes the preimage when Alice claims there, so the operator picks it up from on-chain data.
+- **Mempool griefing.** A mempool observer can copy a victim's pending `(claimer, hash)` and submit a minimum-amount lock first, causing the victim's `lock()` to revert with `HashAlreadyUsed`. The griefer's funds are escrowed (claimable only with the victim's unrevealed preimage) and recovered via `refund()` after the deadline. To recover, the victim picks a fresh preimage and retries — this cannot permanently block bridging, only delay it.
 
 ## Build and test
 
