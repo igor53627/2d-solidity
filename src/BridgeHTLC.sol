@@ -127,6 +127,11 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     // ── core ────────────────────────────────────────────────
 
     /// @notice Lock `amount` USDC under `hash` for bridge-in to 2D.
+    /// @dev    Reverts with HashAlreadyUsed when the (claimer, hash) pair is
+    ///         either currently active in another lock (claimerHashLocked)
+    ///         or has been settled by a previous successful claim
+    ///         (claimerUsedHash). A refunded (claimer, hash) is reusable;
+    ///         a claimed one is retired permanently.
     /// @param hash         sha256(preimage) — the hashlock
     /// @param claimer      The only address allowed to claim (typically the bridge operator)
     /// @param receiverOn2D The intended recipient address on the 2D chain

@@ -139,5 +139,5 @@ Lock-time precondition: lock(hash, claimer, ...) reverts with HashAlreadyUsed wh
 
 Lifecycle of claimerHashLocked[claimer][hash]: false -> true on a successful lock() with that (claimer, hash); true -> false on a successful claim() or refund() of that lock; otherwise unchanged. claimerUsedHash, in contrast, is monotonic (see #10).
 
-Together with #10, this ensures that for any (claimer, hash) at most one lock can ever reach claim(): concurrent admission is blocked at lock-time, and post-claim re-admission is blocked permanently by claimerUsedHash.
+Together with #10, this ensures that for any (claimer, hash): (a) at most one lock is admissible at any given time (concurrent admission blocked by claimerHashLocked), and (b) at most one successful claim can ever occur across all time (post-claim re-admission blocked permanently by claimerUsedHash). After a refund, a fresh lock under the same (claimer, hash) is allowed because the preimage was never revealed.
 ```
