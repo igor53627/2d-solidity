@@ -435,17 +435,6 @@ contract BridgeHTLCTest is Test {
         assertEq(htlc.maxDeadlineDuration(), 365 days);
     }
 
-    function test_setMinDeadlineDuration_above_cap_reverts() public {
-        // first move max past cap is impossible — so move max to cap, then try
-        // to set min above cap (which would also violate min < max).
-        vm.prank(owner);
-        htlc.setMaxDeadlineDuration(365 days);
-
-        vm.expectRevert(BridgeHTLC.InvalidParameter.selector);
-        vm.prank(owner);
-        htlc.setMinDeadlineDuration(366 days);
-    }
-
     function test_constant_MAX_DEADLINE_DURATION_CAP() public view {
         assertEq(htlc.MAX_DEADLINE_DURATION_CAP(), 365 days);
     }

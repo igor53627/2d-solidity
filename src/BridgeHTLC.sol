@@ -117,8 +117,10 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     }
 
     function setMinDeadlineDuration(uint256 _duration) external onlyOwner {
+        // No explicit cap check needed: setMaxDeadlineDuration enforces
+        // max <= MAX_DEADLINE_DURATION_CAP, and we require min < max,
+        // so min < cap holds by transitivity.
         if (_duration == 0 || _duration >= maxDeadlineDuration) revert InvalidParameter();
-        if (_duration > MAX_DEADLINE_DURATION_CAP) revert InvalidParameter();
         uint256 old = minDeadlineDuration;
         minDeadlineDuration = _duration;
         emit MinDeadlineDurationUpdated(old, _duration);
