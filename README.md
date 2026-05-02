@@ -91,7 +91,7 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 
 ### Operational notes for users
 
-- **`HashAlreadyUsed` after a pending tx:** generate a fresh preimage and retry. The old hash is now public and can never be reused under the same operator (see "(claimer, hash) uniqueness").
+- **`HashAlreadyUsed` after a pending tx:** generate a fresh preimage and retry. Never reuse a preimage you have already broadcast — it is now public, anyone who notices can claim a future lock that uses the same hash. Even after the squatter's lock is refunded, the slot frees up but the preimage's secrecy does not.
 - **Sensitive flows: submit `lock()` privately.** Use a private-mempool relay (Flashbots Protect, MEV-Share, or your operator's intent endpoint) so the `(claimer, hash)` pair is not visible until inclusion. This eliminates the front-run window without changing contract behavior.
 - **Pre-registering an intent with the operator** (when available): the bridge operator may expose an EIP-712 intent endpoint where you sign and pre-register `(sender, hash, claimer, receiverOn2D, amount, deadline)` *before* broadcasting `lock()`. The operator only opens the destination-side HTLC for events that match a registered intent, so a squatter who copies `hash` and `claimer` from your pending tx (but not your `sender`) is ignored. See the operator runbook in the [2D chain repository](https://github.com/igor53627/2d) for the current intent schema and endpoint.
 
