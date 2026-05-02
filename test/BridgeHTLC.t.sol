@@ -65,7 +65,7 @@ contract BridgeHTLCTest is Test {
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
     }
 
-    function test_lock_same_hash_different_sender_succeeds() public {
+    function test_lock_same_claimer_hash_different_sender_reverts() public {
         address bob = makeAddr("bob");
         usdc.mint(bob, 10_000e6);
         vm.prank(bob);
@@ -74,11 +74,63 @@ contract BridgeHTLCTest is Test {
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
+        vm.expectRevert(BridgeHTLC.HashAlreadyUsed.selector);
         vm.prank(bob);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+    }
+
+    function test_lock_same_hash_different_claimer_succeeds() public {
+        address bob = makeAddr("bob");
+        address bobClaimer = makeAddr("bobClaimer");
+        usdc.mint(bob, 10_000e6);
+        vm.prank(bob);
+        usdc.approve(address(htlc), type(uint256).max);
+
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        vm.prank(bob);
+        htlc.lock(hash, bobClaimer, aliceOn2D, amount, deadline);
 
         assertTrue(htlc.isActive(alice, hash));
         assertTrue(htlc.isActive(bob, hash));
+    }
+
+    function test_lock_after_refund_same_claimer_hash_different_sender_succeeds() public {
+        address bob = makeAddr("bob");
+        usdc.mint(bob, 10_000e6);
+        vm.prank(bob);
+        usdc.approve(address(htlc), type(uint256).max);
+
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+
+        vm.warp(deadline);
+        htlc.refund(alice, hash);
+
+        // refund clears claimerHashLocked; preimage was never revealed,
+        // so a fresh sender may now lock under the same (claimer, hash).
+        vm.prank(bob);
+        htlc.lock(hash, operator, aliceOn2D, amount, block.timestamp + 2 hours);
+
+        assertTrue(htlc.isActive(bob, hash));
+    }
+
+    function test_lock_after_claim_same_claimer_hash_different_sender_reverts() public {
+        address bob = makeAddr("bob");
+        usdc.mint(bob, 10_000e6);
+        vm.prank(bob);
+        usdc.approve(address(htlc), type(uint256).max);
+
+        vm.prank(alice);
+        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
+        vm.prank(operator);
+        htlc.claim(alice, hash, preimage);
+
+        // claimerUsedHash now blocks any new lock under (operator, hash).
+        vm.expectRevert(BridgeHTLC.HashAlreadyUsed.selector);
+        vm.prank(bob);
+        htlc.lock(hash, operator, aliceOn2D, amount, block.timestamp + 2 hours);
     }
 
     function test_lock_below_minimum_reverts() public {
@@ -264,16 +316,6 @@ contract BridgeHTLCTest is Test {
         assertFalse(htlc.isActive(alice, bytes32(uint256(123))));
     }
 
-    function test_isActive_false_after_claim() public {
-        vm.prank(alice);
-        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
-
-        vm.prank(operator);
-        htlc.claim(alice, hash, preimage);
-
-        assertFalse(htlc.isActive(alice, hash));
-    }
-
     function test_isActive_false_after_refund() public {
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
@@ -321,24 +363,14 @@ contract BridgeHTLCTest is Test {
         assertFalse(htlc.isActive(alice, hash));
     }
 
-    function test_isActive_false_after_claimer_used_hash() public {
-        address bob = makeAddr("bob");
-        usdc.mint(bob, 10_000e6);
-        vm.prank(bob);
-        usdc.approve(address(htlc), type(uint256).max);
-
+    function test_isActive_false_after_claim() public {
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
-        vm.prank(bob);
-        htlc.lock(hash, operator, aliceOn2D, amount, deadline);
-
-        // operator claims alice's lock
         vm.prank(operator);
         htlc.claim(alice, hash, preimage);
 
-        // bob's lock is still active in storage but isActive returns false
-        assertFalse(htlc.isActive(bob, hash));
+        assertFalse(htlc.isActive(alice, hash));
     }
 
     // ── governance setters ───────────────────────────────────
@@ -457,33 +489,28 @@ contract BridgeHTLCTest is Test {
         htlc.initializeV2();
     }
 
-    function test_claim_same_preimage_twice_by_same_claimer_reverts() public {
+    /// @dev Audit v4 H-1: defense-in-depth. With the lock-time
+    /// (claimer, hash) uniqueness check, this branch is now unreachable
+    /// from external callers — but the guard remains in claim() to harden
+    /// against future storage-layout migrations or upgrade bugs.
+    function test_claim_same_preimage_twice_by_same_claimer_blocked_at_lock() public {
         address bob = makeAddr("bob");
         usdc.mint(bob, 10_000e6);
         vm.prank(bob);
         usdc.approve(address(htlc), type(uint256).max);
 
-        // alice and bob lock with same hash, same claimer (operator)
         vm.prank(alice);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
+        // bob can no longer create a parallel lock under (operator, hash)
+        vm.expectRevert(BridgeHTLC.HashAlreadyUsed.selector);
         vm.prank(bob);
         htlc.lock(hash, operator, aliceOn2D, amount, deadline);
 
-        // operator claims alice's lock
+        // alice's lock claims normally
         vm.prank(operator);
         htlc.claim(alice, hash, preimage);
         assertEq(usdc.balanceOf(operator), amount);
-
-        // operator tries to sweep bob's lock with same preimage — blocked
-        vm.expectRevert(BridgeHTLC.PreimageAlreadyUsed.selector);
-        vm.prank(operator);
-        htlc.claim(bob, hash, preimage);
-
-        // bob can still refund after deadline
-        vm.warp(deadline);
-        htlc.refund(bob, hash);
-        assertEq(usdc.balanceOf(bob), 10_000e6);
     }
 
     function test_self_claim_does_not_poison_operator() public {

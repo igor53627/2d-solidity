@@ -75,7 +75,8 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 ### Protections
 
 - **UUPS proxy** -- upgradeable, owner should be a TimelockController
-- **Sender-namespaced locks** -- storage key is `keccak256(sender, hash)`, prevents hash-squatting
+- **Sender-namespaced locks** -- storage key is `keccak256(sender, hash)`, prevents hash-squatting against the victim's own slot
+- **`(claimer, hash)` uniqueness** -- only one active lock may exist per `(claimer, hash)` pair, and a hash consumed by a claim can never be reused for that claimer; prevents an attacker from cloning a victim's hash under the same operator and farming the preimage on the destination chain
 - **Anti-griefing** -- governance-configurable: `minLockAmount` (default 1 USDC), `minDeadlineDuration` (default 1 hour), `maxDeadlineDuration` (default 24 hours). Owner can adjust via setters
 - **Anti-frontrunning** -- `claimer` bound at lock time; `claim()` enforces `msg.sender == claimer`
 - **Single-use preimages** -- each claimer can use a preimage only once; prevents operator from sweeping multiple locks that share a preimage
@@ -86,6 +87,7 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 - **No unlock authority.** Funds leave the contract only via `claim(preimage)` (correct preimage + authorized claimer required) or `refund` (deadline must have passed).
 - **Operator key compromise:** cannot steal locked USDC (no `unlock` function, and claim is bound to the designated claimer). Can refuse to complete swaps (DoS). Users refund after deadline.
 - **Preimage is the only key.** The first valid claim consumes the preimage for that claimer. The 2D chain publishes the preimage when Alice claims there, so the operator picks it up from on-chain data.
+- **Mempool griefing.** A mempool observer can copy a victim's pending `(claimer, hash)` and submit a minimum-amount lock first, causing the victim's `lock()` to revert with `HashAlreadyUsed`. The griefer's funds are escrowed (claimable only with the victim's unrevealed preimage) and recovered via `refund()` after the deadline. To recover, the victim picks a fresh preimage and retries — this cannot permanently block bridging, only delay it.
 
 ## Build and test
 
@@ -100,13 +102,37 @@ Comprehensive tests covering lock, claim, refund, isActive, all revert cases, ev
 
 ### Deploy
 
+Deploys TimelockController + BridgeHTLC (implementation + proxy). The proposer is both proposer and executor on the timelock.
+
 ```bash
-USDC_ADDRESS=0x... OWNER_ADDRESS=0x... forge script script/DeployBridgeHTLC.s.sol --rpc-url $RPC_URL --broadcast
+# Testnet (EOA as proposer, 1 min delay)
+USDC_ADDRESS=0x... \
+PROPOSER_ADDRESS=0x<your-eoa> \
+TIMELOCK_DELAY=60 \
+forge script script/DeployBridgeHTLC.s.sol \
+  --rpc-url $RPC_URL \
+  --broadcast \
+  --verify \
+  --etherscan-api-key $ETHERSCAN_API_KEY
+
+# Mainnet (Safe multisig as proposer, 48h delay)
+USDC_ADDRESS=0x... \
+PROPOSER_ADDRESS=0x<safe-multisig> \
+TIMELOCK_DELAY=172800 \
+forge script script/DeployBridgeHTLC.s.sol \
+  --rpc-url $RPC_URL \
+  --broadcast \
+  --verify \
+  --etherscan-api-key $ETHERSCAN_API_KEY
 ```
+
+Post-deploy checks run automatically: owner == timelock, token == USDC, governance params initialized.
+
+**Production deploys must use the multisig as proposer from genesis.** The timelock is constructed with `admin=address(0)`, so DEFAULT_ADMIN_ROLE is held only by the timelock itself — any role change must go through `schedule()` → delay → `execute()` on the timelock. Worse, an EOA proposer can `cancel()` its own pending removal between schedule and execute, so post-hoc EOA→multisig migration is not a security boundary.
 
 ## Security
 
-- [Formal invariants](audit/INVARIANTS.md) -- 16 properties the contract must preserve
+- [Formal invariants](audit/INVARIANTS.md) -- 17 properties the contract must preserve
 
 ## Related
 
