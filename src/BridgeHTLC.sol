@@ -17,6 +17,12 @@ import {ReentrancyGuardTransient} from "@openzeppelin/contracts/utils/Reentrancy
 contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, ReentrancyGuardTransient {
     using SafeERC20 for IERC20;
 
+    /// @notice Hard cap on min/maxDeadlineDuration. Prevents a misconfigured
+    ///         setter from making `block.timestamp + duration` overflow in
+    ///         lock(), which would brick all new locks until governance
+    ///         lowers the value back through the timelock.
+    uint256 public constant MAX_DEADLINE_DURATION_CAP = 365 days;
+
     IERC20 public token;
 
     struct Lock {
@@ -72,7 +78,10 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     error DeadlineTooFar();
     error NotClaimer();
     error PreimageAlreadyUsed();
-    error InvalidParameter();
+    error ZeroAmount();
+    error ZeroDuration();
+    error DurationOrderInvalid();
+    error DurationAboveCap();
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -104,21 +113,26 @@ contract BridgeHTLC is Initializable, UUPSUpgradeable, OwnableUpgradeable, Reent
     // ── governance setters ──────────────────────────────────
 
     function setMinLockAmount(uint256 _amount) external onlyOwner {
-        if (_amount == 0) revert InvalidParameter();
+        if (_amount == 0) revert ZeroAmount();
         uint256 old = minLockAmount;
         minLockAmount = _amount;
         emit MinLockAmountUpdated(old, _amount);
     }
 
     function setMinDeadlineDuration(uint256 _duration) external onlyOwner {
-        if (_duration == 0 || _duration >= maxDeadlineDuration) revert InvalidParameter();
+        // No explicit cap check needed: setMaxDeadlineDuration enforces
+        // max <= MAX_DEADLINE_DURATION_CAP, and we require min < max,
+        // so min < cap holds by transitivity.
+        if (_duration == 0) revert ZeroDuration();
+        if (_duration >= maxDeadlineDuration) revert DurationOrderInvalid();
         uint256 old = minDeadlineDuration;
         minDeadlineDuration = _duration;
         emit MinDeadlineDurationUpdated(old, _duration);
     }
 
     function setMaxDeadlineDuration(uint256 _duration) external onlyOwner {
-        if (_duration <= minDeadlineDuration) revert InvalidParameter();
+        if (_duration <= minDeadlineDuration) revert DurationOrderInvalid();
+        if (_duration > MAX_DEADLINE_DURATION_CAP) revert DurationAboveCap();
         uint256 old = maxDeadlineDuration;
         maxDeadlineDuration = _duration;
         emit MaxDeadlineDurationUpdated(old, _duration);

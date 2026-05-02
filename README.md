@@ -70,14 +70,14 @@ Returns whether a lock is still active and claimable — i.e. not yet claimed, n
 | `isActive(sender, hash)` | Verifier | View: is the lock still claimable? |
 | `setMinLockAmount(amount)` | Owner | Update minimum lock amount |
 | `setMinDeadlineDuration(duration)` | Owner | Update minimum deadline duration (must be < max) |
-| `setMaxDeadlineDuration(duration)` | Owner | Update maximum deadline duration (must be > min) |
+| `setMaxDeadlineDuration(duration)` | Owner | Update maximum deadline duration (must be > min, capped at `MAX_DEADLINE_DURATION_CAP` = 365 days) |
 
 ### Protections
 
 - **UUPS proxy** -- upgradeable, owner should be a TimelockController
 - **Sender-namespaced locks** -- storage key is `keccak256(sender, hash)`, prevents hash-squatting against the victim's own slot
 - **`(claimer, hash)` uniqueness** -- only one active lock may exist per `(claimer, hash)` pair, and a hash consumed by a claim can never be reused for that claimer; prevents an attacker from cloning a victim's hash under the same operator and farming the preimage on the destination chain
-- **Anti-griefing** -- governance-configurable: `minLockAmount` (default 1 USDC), `minDeadlineDuration` (default 1 hour), `maxDeadlineDuration` (default 24 hours). Owner can adjust via setters
+- **Anti-griefing** -- governance-configurable: `minLockAmount` (default 1 USDC), `minDeadlineDuration` (default 1 hour), `maxDeadlineDuration` (default 24 hours, hard-capped at 365 days). Owner can adjust via setters
 - **Anti-frontrunning** -- `claimer` bound at lock time; `claim()` enforces `msg.sender == claimer`
 - **Single-use preimages** -- each claimer can use a preimage only once; prevents operator from sweeping multiple locks that share a preimage
 - **ReentrancyGuardTransient** + **SafeERC20** -- defense-in-depth

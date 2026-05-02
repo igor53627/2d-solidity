@@ -31,7 +31,7 @@ If locks[id].active == true then locks[id].sender != address(0) AND locks[id].cl
 **Function:** `Contract-wide`
 
 ```solidity
-minLockAmount > 0 AND minDeadlineDuration > 0 AND maxDeadlineDuration > 0 AND minDeadlineDuration < maxDeadlineDuration always holds after initialization and after any setter call. Note: initializeV2() enforces this by construction (hardcoded 1e6/1h/24h), not via a runtime guard.
+minLockAmount > 0 AND minDeadlineDuration > 0 AND maxDeadlineDuration > 0 AND minDeadlineDuration < maxDeadlineDuration AND maxDeadlineDuration <= MAX_DEADLINE_DURATION_CAP (365 days) always holds after initialization and after any setter call. The cap on durations prevents `block.timestamp + duration` from overflowing in lock(). Note: initializeV2() enforces this by construction (hardcoded 1e6/1h/24h), not via a runtime guard.
 ```
 
 ### 5. Only owner can change governance parameters, authorize upgrades, and reinitialize; non-owners can never change them.

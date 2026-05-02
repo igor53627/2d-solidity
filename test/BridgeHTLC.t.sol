@@ -388,7 +388,7 @@ contract BridgeHTLCTest is Test {
     }
 
     function test_setMinLockAmount_zero_reverts() public {
-        vm.expectRevert(BridgeHTLC.InvalidParameter.selector);
+        vm.expectRevert(BridgeHTLC.ZeroAmount.selector);
         vm.prank(owner);
         htlc.setMinLockAmount(0);
     }
@@ -406,9 +406,15 @@ contract BridgeHTLCTest is Test {
     }
 
     function test_setMinDeadlineDuration_gte_max_reverts() public {
-        vm.expectRevert(BridgeHTLC.InvalidParameter.selector);
+        vm.expectRevert(BridgeHTLC.DurationOrderInvalid.selector);
         vm.prank(owner);
         htlc.setMinDeadlineDuration(24 hours);
+    }
+
+    function test_setMinDeadlineDuration_zero_reverts() public {
+        vm.expectRevert(BridgeHTLC.ZeroDuration.selector);
+        vm.prank(owner);
+        htlc.setMinDeadlineDuration(0);
     }
 
     function test_setMaxDeadlineDuration() public {
@@ -418,9 +424,25 @@ contract BridgeHTLCTest is Test {
     }
 
     function test_setMaxDeadlineDuration_lte_min_reverts() public {
-        vm.expectRevert(BridgeHTLC.InvalidParameter.selector);
+        vm.expectRevert(BridgeHTLC.DurationOrderInvalid.selector);
         vm.prank(owner);
         htlc.setMaxDeadlineDuration(1 hours);
+    }
+
+    function test_setMaxDeadlineDuration_above_cap_reverts() public {
+        vm.expectRevert(BridgeHTLC.DurationAboveCap.selector);
+        vm.prank(owner);
+        htlc.setMaxDeadlineDuration(366 days);
+    }
+
+    function test_setMaxDeadlineDuration_at_cap_succeeds() public {
+        vm.prank(owner);
+        htlc.setMaxDeadlineDuration(365 days);
+        assertEq(htlc.maxDeadlineDuration(), 365 days);
+    }
+
+    function test_constant_MAX_DEADLINE_DURATION_CAP() public view {
+        assertEq(htlc.MAX_DEADLINE_DURATION_CAP(), 365 days);
     }
 
     function test_setMinLockAmount_emits_event() public {
